@@ -327,6 +327,9 @@
   .calendar-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    /* Otherwise the scrollbar track sits flush against the last calendar
+       row, with no breathing room at all between the two. */
+    padding-bottom: 10px;
   }
   .calendar-scroll .schedule-grid {
     min-width: 700px;
@@ -441,6 +444,19 @@
   .form-group select {
     @apply w-full;
     max-width: 300px;
+  }
+
+  /* Wheel time picker: each column is a native scroll container (mouse
+     wheel, trackpad, and manual pointer-drag panning all just move
+     scrollTop) so it stops dead at the first/last item instead of looping
+     — no custom physics needed, a plain bounded scroll region already
+     can't wrap around. The scrollbar itself is hidden since the centered
+     highlight band is the picker's only visual affordance. */
+  .wheel-col {
+    scrollbar-width: none;
+  }
+  .wheel-col::-webkit-scrollbar {
+    display: none;
   }
 }
 

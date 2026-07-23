@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
-import { AlertTriangle, Building2, ChevronDown, ChevronLeft, ChevronRight, Home, Moon, Plus, Stethoscope, Trash2, Umbrella, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Home, Maximize2, Moon, Plus, RotateCcw, Stethoscope, Trash2, Umbrella, type LucideIcon } from 'lucide-react'
 import { selfCheck } from '../rules/selfCheck'
 import type { CallType, Violation } from '../rules/types'
 import { buildRuleset } from '../rules/para_2024_2028'
@@ -13,6 +13,37 @@ interface Entry {
   start: string // HH:MM, 24h; unused for vacation
   end: string // HH:MM, 24h; unused for vacation
   endNextDay: boolean // unused for vacation
+}
+
+// Everything entered lives only in the browser (per the page's own intro
+// text) — localStorage, not a server — so it survives a reload/tab close
+// instead of vanishing the moment the page unmounts.
+const ENTRIES_STORAGE_KEY = 'postcall.entries'
+
+function isEntry(v: unknown): v is Entry {
+  return !!v && typeof v === 'object'
+    && typeof (v as Entry).key === 'string'
+    && typeof (v as Entry).type === 'string'
+    && typeof (v as Entry).start === 'string'
+    && typeof (v as Entry).end === 'string'
+    && typeof (v as Entry).endNextDay === 'boolean'
+}
+
+function loadStoredEntries(): Record<string, Entry[]> {
+  try {
+    const raw = localStorage.getItem(ENTRIES_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    const result: Record<string, Entry[]> = {}
+    for (const [date, entries] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(entries) && entries.every(isEntry)) result[date] = entries
+    }
+    return result
+  } catch {
+    // Corrupt/unparseable data shouldn't crash the page — just start fresh.
+    return {}
+  }
 }
 
 const TYPE_LABEL: Record<EntryType, string> = {
@@ -99,10 +130,12 @@ const POPOVER_WIDTH = 172
 // open above the button.
 const POPOVER_FALLBACK_HEIGHT = 220
 
-let keyCounter = 0
+// A random UUID, not an incrementing counter: entries now persist across
+// reloads (see ENTRIES_STORAGE_KEY below), and a counter restarting at 1
+// every reload could collide with a key already saved from a previous
+// session on the same day.
 function nextKey() {
-  keyCounter += 1
-  return `entry-${keyCounter}`
+  return `entry-${crypto.randomUUID()}`
 }
 
 function pad(n: number) {
@@ -145,6 +178,335 @@ function TimeLabel({ value }: { value: string }) {
       {main}
       <span className="text-[0.55em] opacity-70">{period}</span>
     </>
+  )
+}
+
+// Fixed height for the Start/End section, in EITHER mode — the compact
+// (both fields collapsed) layout's own natural size, measured directly, not
+// the other way around: expanding a field must fit its wheel INTO this
+// budget rather than growing the popover to fit the wheel. A popover that
+// resizes as you interact with it can drift or clip against the viewport
+// edge; one that doesn't, can't.
+const TIME_SECTION_HEIGHT = 138
+
+// Sized (row count × row height) to fit inside TIME_SECTION_HEIGHT once the
+// field label and outer margin are accounted for — see the budget math
+// below. A wheel picker still wants at least a few rows above/below center
+// to read as a wheel at all, so this trades item height down rather than
+// dropping to fewer rows.
+const WHEEL_VISIBLE_ROWS = 5
+const WHEEL_ITEM_HEIGHT = Math.floor((TIME_SECTION_HEIGHT - 20) / WHEEL_VISIBLE_ROWS)
+const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ROWS
+const WHEEL_PADDING = (WHEEL_HEIGHT - WHEEL_ITEM_HEIGHT) / 2
+
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => `${i + 1}`)
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => pad(i))
+const PERIODS = ['AM', 'PM'] as const
+type Period = typeof PERIODS[number]
+
+function hhmmTo12(hhmm: string): { hour: number; minute: number; period: Period } {
+  const [hStr, mStr] = hhmm.split(':')
+  let h = parseInt(hStr, 10)
+  const minute = parseInt(mStr, 10)
+  const period: Period = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return { hour: h, minute, period }
+}
+
+function to24h(hour: number, minute: number, period: Period): string {
+  let h = hour % 12
+  if (period === 'PM') h += 12
+  return `${pad(h)}:${pad(minute)}`
+}
+
+// One vertically-scrollable column of numbers. Mouse wheel/trackpad scroll
+// and a manual pointer-drag both just move the container's native
+// scrollTop, so it settles on whichever row is centered — and, being a
+// plain bounded scroll region (not a custom physics loop), it stops dead
+// at the first/last item instead of wrapping around. Rendered plain (no
+// input) — NumberWheelField below overlays the editable input on top of
+// this when expanded.
+function WheelColumn({
+  items, value, onChange, highlight, scrollRef,
+}: {
+  items: readonly string[]
+  value: string
+  onChange: (v: string) => void
+  highlight?: (v: string) => boolean
+  // Exposes the scrollable element so a sibling overlay (the embedded
+  // input in NumberWheelField, which sits outside this element in the DOM
+  // and so has no scrollable ancestor of its own) can still forward wheel
+  // scrolling to it manually.
+  scrollRef?: React.MutableRefObject<HTMLDivElement | null>
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const draggingRef = useRef(false)
+  const dragStartRef = useRef({ y: 0, scrollTop: 0 })
+  const settleTimeoutRef = useRef<number | undefined>(undefined)
+  const index = items.indexOf(value)
+
+  // Keep the wheel in sync when the value changes from outside a drag —
+  // typing into the overlaid input, or an AM/PM toggle click elsewhere in
+  // the same field.
+  useEffect(() => {
+    const el = ref.current
+    if (!el || draggingRef.current) return
+    el.scrollTop = index * WHEEL_ITEM_HEIGHT
+  }, [index])
+
+  const nearestIndex = (el: HTMLDivElement) =>
+    Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / WHEEL_ITEM_HEIGHT)))
+
+  // No row-level "selected" styling to update here at all — the embedded
+  // input overlay (NumberWheelField) already shows the live value directly
+  // on top of the center row, so there's nothing for this wheel itself to
+  // highlight or keep in sync, and no lag/mismatch to chase during a fast
+  // scroll. Every row's class is static (just the quarter-hour hint), fixed
+  // at render time.
+  const updateLive = () => {
+    const el = ref.current
+    if (!el) return
+    const i = nearestIndex(el)
+    if (items[i] !== value) onChange(items[i])
+  }
+
+  // Only the smooth snap-into-place is debounced until scrolling actually
+  // stops — the live value above already tracks the nearest row instantly.
+  const snapToNearest = () => {
+    const el = ref.current
+    if (!el) return
+    el.scrollTo({ top: nearestIndex(el) * WHEEL_ITEM_HEIGHT, behavior: 'smooth' })
+  }
+
+  const onScroll = () => {
+    updateLive()
+    if (draggingRef.current) return
+    if (settleTimeoutRef.current) window.clearTimeout(settleTimeoutRef.current)
+    settleTimeoutRef.current = window.setTimeout(snapToNearest, 120)
+  }
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = ref.current
+    if (!el) return
+    draggingRef.current = true
+    dragStartRef.current = { y: e.clientY, scrollTop: el.scrollTop }
+    el.setPointerCapture(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return
+    const el = ref.current
+    if (!el) return
+    el.scrollTop = dragStartRef.current.scrollTop - (e.clientY - dragStartRef.current.y)
+    updateLive()
+  }
+  const endDrag = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    updateLive()
+    snapToNearest()
+  }
+
+  return (
+    <div
+      ref={el => { ref.current = el; if (scrollRef) scrollRef.current = el }}
+      onScroll={onScroll}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      className="wheel-col relative w-full overflow-y-scroll cursor-grab active:cursor-grabbing select-none"
+      style={{ height: WHEEL_HEIGHT, touchAction: 'none' }}
+    >
+      <div style={{ height: WHEEL_PADDING }} />
+      {items.map(item => {
+        const quarter = highlight?.(item) ?? false
+        return (
+          <div
+            key={item}
+            onClick={() => onChange(item)}
+            style={{ height: WHEEL_ITEM_HEIGHT }}
+            className={`flex items-center justify-center text-sm tabular-nums ${
+              quarter
+                ? 'opacity-70 font-medium text-stone-700 dark:text-stone-300'
+                : 'opacity-35 text-stone-500'
+            }`}
+          >
+            {item}
+          </div>
+        )
+      })}
+      <div style={{ height: WHEEL_PADDING }} />
+    </div>
+  )
+}
+
+// Hour or minute, as either a small standalone input (collapsed) or the
+// same input embedded at the fixed center of a scrollable wheel (expanded)
+// — same value, same typing/Enter behavior either way. The center overlay
+// sits at a fixed pixel band (not a fixed DOM row), fully occluding
+// whatever number happens to be scrolled behind it, so scrolling and
+// typing stay in sync without ever showing two conflicting values.
+function NumberWheelField({
+  items, value, min, onChange, highlight, expanded,
+}: {
+  items: readonly string[]
+  value: string
+  min: number
+  onChange: (v: string) => void
+  highlight?: (v: string) => boolean
+  expanded: boolean
+}) {
+  const [text, setText] = useState(value)
+  useEffect(() => { setText(value) }, [value])
+  const scrollElRef = useRef<HTMLDivElement | null>(null)
+  const overlayRef = useRef<HTMLDivElement | null>(null)
+
+  // React attaches wheel listeners as passive, so preventDefault() inside a
+  // JSX onWheel prop is silently ignored — without it, this wheel event
+  // would also bubble up and scroll the popover/page underneath, since (see
+  // below) the overlay isn't actually inside the scrollable wheel column.
+  // A plain addEventListener with passive:false is the only way to stop
+  // that as well as forward the scroll.
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const scrollEl = scrollElRef.current
+      if (scrollEl) scrollEl.scrollTop += e.deltaY
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const commit = () => {
+    const n = parseInt(text, 10)
+    const formatted = Number.isNaN(n) ? value : items[Math.max(0, Math.min(items.length - 1, n - min))]
+    setText(formatted)
+    if (formatted !== value) onChange(formatted)
+  }
+
+  const inputEl = (
+    <input
+      type="text"
+      inputMode="numeric"
+      maxLength={2}
+      value={text}
+      onChange={e => setText(e.target.value.replace(/\D/g, '').slice(0, 2))}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } }}
+      className="w-full h-full p-0 m-0 border-0 rounded-none bg-transparent text-center text-sm font-semibold outline-none ring-0 focus:outline-none focus:ring-0 focus:border-0 tabular-nums text-stone-800 dark:text-stone-100"
+    />
+  )
+
+  if (!expanded) {
+    return (
+      <div
+        className="flex items-center justify-center rounded border border-stone-300 bg-white dark:bg-stone-900 dark:border-stone-600 shrink-0"
+        style={{ width: 30, height: 26 }}
+      >
+        {inputEl}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full" style={{ height: WHEEL_HEIGHT }}>
+      <WheelColumn items={items} value={value} onChange={onChange} highlight={highlight} scrollRef={scrollElRef} />
+      <div
+        className="absolute left-0.5 right-0.5 rounded border border-stone-300 dark:border-stone-600 bg-brand-50 dark:bg-brand-900 pointer-events-none flex items-center justify-center"
+        style={{ top: WHEEL_PADDING, height: WHEEL_ITEM_HEIGHT }}
+      >
+        {/* The input overlays the wheel visually but sits OUTSIDE it in the
+            DOM (it's a sibling, not a descendant, of the scrollable div
+            above), so the browser has no scrollable ancestor to route a
+            wheel event to when the cursor is over the center row — the
+            effect above forwards it manually to the wheel's own scrollTop. */}
+        <div ref={overlayRef} className="pointer-events-auto w-full h-full">
+          {inputEl}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// A square split into an AM button (top half) and a PM button (bottom
+// half) — a toggle, not a dropdown, since there are only ever two values.
+function AmPmSquareToggle({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  return (
+    <div
+      className="flex flex-col rounded-md border border-stone-300 dark:border-stone-600 overflow-hidden shrink-0"
+      style={{ width: 26, height: 26 }}
+    >
+      {PERIODS.map(p => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onChange(p)}
+          className={`flex-1 w-full flex items-center justify-center p-0 m-0 border-0 rounded-none shadow-none text-[0.5rem] font-bold leading-none ${
+            value === p
+              ? 'bg-brand-600 text-white dark:bg-brand-500'
+              : 'bg-white text-stone-400 dark:bg-stone-900 dark:text-stone-500'
+          }`}
+        >
+          {p}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// A themed replacement for <input type="time">. Defaults to a compact row
+// (hour input, minute input, AM/PM square) with no scrolling in sight; the
+// icon on the right expands it into the full scrollable wheel, with the
+// same inputs now embedded at its center so typing still works even while
+// it's scrollable. Every edit — typed, toggled, or scrolled — applies
+// straight to the calendar entry immediately; there's no separate confirm
+// step beyond the popover's own Add button.
+function TimeField({
+  label, value, onChange, expanded, onToggleExpanded,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  expanded: boolean
+  onToggleExpanded: () => void
+}) {
+  const { hour, minute, period } = hhmmTo12(value)
+
+  return (
+    <div className="mb-1">
+      <div className="text-[0.65rem] text-stone-500 dark:text-stone-400 mb-0.5">{label}</div>
+      <div className="flex items-center justify-center gap-1">
+        <NumberWheelField
+          items={HOURS_12} value={`${hour}`} min={1}
+          onChange={v => onChange(to24h(parseInt(v, 10), minute, period))}
+          expanded={expanded}
+        />
+        <span className="text-sm text-stone-400 shrink-0">:</span>
+        <NumberWheelField
+          items={MINUTES_60} value={pad(minute)} min={0}
+          onChange={v => onChange(to24h(hour, parseInt(v, 10), period))}
+          highlight={v => parseInt(v, 10) % 15 === 0}
+          expanded={expanded}
+        />
+        <AmPmSquareToggle value={period} onChange={p => onChange(to24h(hour, minute, p))} />
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          title={expanded ? 'Done' : 'Show scrollable picker'}
+          className={`flex items-center justify-center p-0 shadow-none rounded border shrink-0 ${
+            expanded
+              ? 'bg-brand-600 border-brand-600 text-white dark:bg-brand-500 dark:border-brand-500'
+              : 'bg-white border-stone-300 text-stone-500 dark:bg-stone-900 dark:border-stone-600 dark:text-stone-400'
+          }`}
+          style={{ width: 22, height: 22 }}
+        >
+          {expanded ? <Check size={13} /> : <Maximize2 size={12} />}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -195,7 +557,15 @@ function formatDateRange(dates: string[]): string {
 }
 
 export default function SelfCheckPage() {
-  const [entriesByDate, setEntriesByDate] = useState<Record<string, Entry[]>>({})
+  const [entriesByDate, setEntriesByDate] = useState<Record<string, Entry[]>>(loadStoredEntries)
+
+  useEffect(() => {
+    localStorage.setItem(ENTRIES_STORAGE_KEY, JSON.stringify(entriesByDate))
+  }, [entriesByDate])
+  // Gates the reset button behind an explicit confirmation — clearing every
+  // entered shift/vacation day is a one-click-undoable-only-by-retyping-
+  // everything action, so it shouldn't fire from a single stray click.
+  const [confirmingReset, setConfirmingReset] = useState(false)
   const [addingFor, setAddingFor] = useState<string | null>(null)
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null)
   // The button that opened the current popover, so its position can be
@@ -204,6 +574,11 @@ export default function SelfCheckPage() {
   const anchorElRef = useRef<HTMLElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const [typeMenuOpen, setTypeMenuOpen] = useState(false)
+  // Start and End are always visible as compact hour/minute fields; this
+  // only tracks which one (if either) currently has its full scrollable
+  // wheel expanded — at most one at a time, so the popover doesn't grow
+  // to double height for no reason.
+  const [expandedField, setExpandedField] = useState<'start' | 'end' | null>(null)
   const [draftType, setDraftType] = useState<EntryType>('ih_night')
   const [draftStart, setDraftStart] = useState('17:00')
   const [draftEnd, setDraftEnd] = useState('08:00')
@@ -243,12 +618,13 @@ export default function SelfCheckPage() {
   // Runs before paint (not after) so a newly-opened popover measures at its
   // real rendered height immediately, instead of flashing at the fallback
   // position for a frame. Also re-runs when the type changes (vacation has
-  // no time inputs, so it's much shorter) or the type dropdown opens (which
-  // adds a list of its own), since either changes the popover's height.
+  // no time inputs, so it's much shorter) or the type/time dropdown opens
+  // (each adds a list of its own), since any of these changes the popover's
+  // effective height.
   useLayoutEffect(() => {
     if (addingFor === null) return
     updatePopoverPosition()
-  }, [addingFor, draftType, typeMenuOpen])
+  }, [addingFor, draftType, typeMenuOpen, expandedField])
 
   // Scroll doesn't bubble, so a capturing window listener is the only way
   // to hear about scrolling on any descendant (like .calendar-scroll's own
@@ -313,14 +689,34 @@ export default function SelfCheckPage() {
     setYear(y)
   }
 
+  // Bumped on every Jump-to-Today click (even when already on the current
+  // month) so the effect below always fires — separate from year/month so
+  // it doesn't also re-trigger on ordinary prev/next month navigation.
+  const [todayJumpTick, setTodayJumpTick] = useState(0)
+
   const jumpToToday = () => {
     const ty = now.getFullYear()
     const tm = now.getMonth() + 1
-    if (ty === year && tm === month) return
-    setDirection(ty > year || (ty === year && tm > month) ? 'right' : 'left')
-    setYear(ty)
-    setMonth(tm)
+    if (ty !== year || tm !== month) {
+      setDirection(ty > year || (ty === year && tm > month) ? 'right' : 'left')
+      setYear(ty)
+      setMonth(tm)
+    }
+    setTodayJumpTick(t => t + 1)
   }
+
+  // The grid can be wider than the card and scroll horizontally (see
+  // .calendar-scroll); a month switch alone only resets that scroll to its
+  // left edge, which doesn't necessarily show today's column at all (e.g.
+  // if today falls on a Friday, the leftmost Sun-Thu view still leaves it
+  // off-screen) — and if the month wasn't changing at all, nothing would
+  // reset the scroll position in the first place. Explicitly scroll
+  // today's cell into view either way.
+  useEffect(() => {
+    if (todayJumpTick === 0) return
+    const el = calendarScrollRef.current?.querySelector(`[data-date="${today}"]`)
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [todayJumpTick])
 
   // Leading/trailing cells show the actual adjacent-month dates (dimmed),
   // like a normal calendar, rather than sitting empty.
@@ -355,6 +751,7 @@ export default function SelfCheckPage() {
     anchorElRef.current = anchorEl
     setAddingFor(date)
     setTypeMenuOpen(false)
+    setExpandedField(null)
 
     const weekday = new Date(`${date}T00:00:00`).getDay()
     const isWeekend = weekday === 0 || weekday === 6
@@ -376,6 +773,7 @@ export default function SelfCheckPage() {
   const onDraftTypeChange = (type: EntryType) => {
     setDraftType(type)
     setTypeMenuOpen(false)
+    setExpandedField(null)
     if (type === 'vacation') return
     const defaults = DEFAULT_TIMES[type]
     setDraftStart(defaults.start)
@@ -392,6 +790,7 @@ export default function SelfCheckPage() {
     setLastUsedType(draftType)
     setAddingFor(null)
     setTypeMenuOpen(false)
+    setExpandedField(null)
     // Any calendar edit can invalidate the last check's results (a
     // violation might reference a shift that no longer exists), so clear
     // them rather than risk showing stale red highlights.
@@ -449,7 +848,18 @@ export default function SelfCheckPage() {
     setError('')
   }
 
-  const markedCount = Object.values(entriesByDate).filter(entries => entries.length > 0).length
+  // How many of each shift type have been entered so far, shown as a small
+  // count next to its legend swatch instead of a single undifferentiated
+  // "N days marked" total.
+  const countByType = useMemo(() => {
+    const counts: Partial<Record<EntryType, number>> = {}
+    for (const entries of Object.values(entriesByDate)) {
+      for (const entry of entries) {
+        counts[entry.type] = (counts[entry.type] ?? 0) + 1
+      }
+    }
+    return counts
+  }, [entriesByDate])
 
   // Not every violation names a specific day (e.g. "worked 3 weekends this
   // block" is a whole-block count, not tied to one date) — those have an
@@ -485,6 +895,7 @@ export default function SelfCheckPage() {
     return (
       <div
         key={date}
+        data-date={date}
         className={`day-cell${isWeekend ? ' weekend' : ''}${dayViolations ? ' border-danger-500! dark:border-danger-500!' : ''}`}
         style={{ minHeight: 100, position: 'relative' }}
       >
@@ -577,7 +988,7 @@ export default function SelfCheckPage() {
                 return (
                   <button
                     type="button"
-                    onClick={() => setTypeMenuOpen(o => !o)}
+                    onClick={() => { setTypeMenuOpen(o => !o); setExpandedField(null) }}
                     className={`w-full flex items-center justify-between gap-1 rounded px-1.5 py-1 text-[0.7rem] ${TYPE_CLASSES[draftType]}`}
                   >
                     <span className="flex items-center gap-1">
@@ -611,44 +1022,62 @@ export default function SelfCheckPage() {
               )}
             </div>
 
-            {draftType !== 'vacation' && (
-              <>
-                {/* Stacked, not side-by-side: a native time input needs more
-                    room than half this popover's width can offer, and at
-                    that width its own internals (clock icon, AM/PM segment)
-                    were spilling past the input's border. Full width fixes
-                    that regardless of how narrow the popover is. */}
-                <div className="text-[0.65rem] text-stone-500 dark:text-stone-400 mb-0.5">Start</div>
-                <input
-                  type="time"
-                  value={draftStart}
-                  onChange={e => setDraftStart(e.target.value)}
-                  className="w-full text-xs"
-                  style={{ padding: '3px 4px', margin: 0, marginBottom: 4 }}
-                />
-                <div className="text-[0.65rem] text-stone-500 dark:text-stone-400 mb-0.5">End</div>
-                <input
-                  type="time"
-                  value={draftEnd}
-                  onChange={e => setDraftEnd(e.target.value)}
-                  className="w-full text-xs"
-                  style={{ padding: '3px 4px', margin: 0 }}
-                />
-                <label className="flex items-center gap-1.5 font-normal my-1 cursor-pointer text-[0.65rem] text-stone-600 dark:text-stone-300">
-                  <span className="switch switch-sm">
-                    <input type="checkbox" checked={draftEndNextDay}
-                      onChange={e => setDraftEndNextDay(e.target.checked)} />
-                    <span className="slider" />
-                  </span>
-                  Ends next day
-                </label>
-              </>
+            {draftType === 'vacation' ? (
+              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                <button className="primary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => confirmAdd(date)}>Add</button>
+                <button className="secondary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false); setExpandedField(null) }}>Cancel</button>
+              </div>
+            ) : (
+              // Fixed height in EITHER mode (see TIME_SECTION_HEIGHT) — only
+              // what's inside reflows between the two layouts, so expanding a
+              // field never changes the popover's own size or position.
+              <div style={{ height: TIME_SECTION_HEIGHT }} className="flex flex-col">
+                {expandedField !== null ? (
+                  // Expanding a field takes over everything below the
+                  // shift-type selector — the other field, "ends next day",
+                  // and Add/Cancel all step aside so the wheel has the whole
+                  // section to itself. The checkmark returns them.
+                  <TimeField
+                    label={expandedField === 'start' ? 'Start' : 'End'}
+                    value={expandedField === 'start' ? draftStart : draftEnd}
+                    onChange={expandedField === 'start' ? setDraftStart : setDraftEnd}
+                    expanded
+                    onToggleExpanded={() => setExpandedField(null)}
+                  />
+                ) : (
+                  <div className="flex flex-col justify-between h-full">
+                    <div>
+                      <TimeField
+                        label="Start"
+                        value={draftStart}
+                        onChange={setDraftStart}
+                        expanded={false}
+                        onToggleExpanded={() => { setTypeMenuOpen(false); setExpandedField('start') }}
+                      />
+                      <TimeField
+                        label="End"
+                        value={draftEnd}
+                        onChange={setDraftEnd}
+                        expanded={false}
+                        onToggleExpanded={() => { setTypeMenuOpen(false); setExpandedField('end') }}
+                      />
+                      <label className="flex items-center gap-1.5 font-normal my-1 cursor-pointer text-[0.65rem] text-stone-600 dark:text-stone-300">
+                        <span className="switch switch-sm">
+                          <input type="checkbox" checked={draftEndNextDay}
+                            onChange={e => setDraftEndNextDay(e.target.checked)} />
+                          <span className="slider" />
+                        </span>
+                        Ends next day
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="primary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => confirmAdd(date)}>Add</button>
+                      <button className="secondary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false); setExpandedField(null) }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
-
-            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-              <button className="primary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => confirmAdd(date)}>Add</button>
-              <button className="secondary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false) }}>Cancel</button>
-            </div>
           </div>
         )}
       </div>
@@ -675,10 +1104,13 @@ export default function SelfCheckPage() {
             <button className="secondary sm:hidden p-2" onClick={() => goToMonth(-1)} title="Previous month">
               <ChevronLeft size={16} />
             </button>
+            <button className="secondary" onClick={jumpToToday}>Today</button>
             <button className="secondary sm:hidden p-2" onClick={() => goToMonth(1)} title="Next month">
               <ChevronRight size={16} />
             </button>
-            <button className="secondary" onClick={jumpToToday}>Jump to Today</button>
+            <button className="secondary p-2" onClick={() => setConfirmingReset(true)} title="Reset">
+              <RotateCcw size={16} />
+            </button>
           </div>
         </div>
 
@@ -738,19 +1170,16 @@ export default function SelfCheckPage() {
         <div className="flex gap-3 flex-wrap mt-4 text-xs">
           {LEGEND_ORDER.map(t => {
             const Icon = TYPE_ICON[t]
+            const count = countByType[t] ?? 0
             return (
               <span key={t} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${TYPE_CLASSES[t]}`}>
                 <Icon size={12} />
                 {TYPE_LABEL[t]}
+                {count > 0 && <span className="font-semibold tabular-nums opacity-70">{count}</span>}
               </span>
             )
           })}
         </div>
-      </div>
-
-      <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <button className="secondary" onClick={clearAll}>Clear All</button>
-        <span className="text-sm text-stone-500 dark:text-stone-400">{markedCount} day(s) marked</span>
       </div>
 
       {error && (
@@ -799,6 +1228,26 @@ export default function SelfCheckPage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {confirmingReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="card" style={{ maxWidth: 360, marginBottom: 0 }}>
+            <h2>Reset everything?</h2>
+            <p className="text-sm text-stone-600 dark:text-stone-300 mt-2">
+              This clears every shift and vacation day you've entered. It can't be undone.
+            </p>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="danger"
+                onClick={() => { clearAll(); setConfirmingReset(false) }}
+              >
+                Reset
+              </button>
+              <button className="secondary" onClick={() => setConfirmingReset(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
