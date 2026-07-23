@@ -1,0 +1,347 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+/* Manual dark mode: toggled via a `.dark` class on <html> (see App.tsx),
+   not just prefers-color-scheme, so the navbar toggle can override the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* --- Tier 1: Brand (identity) --- night ink indigo. Full scale so every
+     component can pick the right weight (50/100 tints, 500-700 for
+     interactive states, 800/900 for high-contrast text) instead of
+     reaching for whatever shade happens to be defined. */
+  --color-brand-50: #eef1f8;
+  --color-brand-100: #dbe1f0;
+  --color-brand-200: #c1cbe3;
+  --color-brand-300: #9daed0;
+  --color-brand-400: #6f7fb3;
+  --color-brand-500: #4a5a94;
+  --color-brand-600: #333f78;
+  --color-brand-700: #232c57;
+  --color-brand-800: #1a2140;
+  --color-brand-900: #12172c;
+
+  /* --- Tier 2: Domain (the duty cycle itself) --- what kind of day this is,
+     not how the system feels about it. Each hue is a stop on the same
+     midnight-to-midnight duty cycle, so the palette reads as one continuous
+     progression rather than unrelated accent colors. */
+
+  /* Day call/shift: sun, midday. */
+  --color-day-50: #fffbeb;
+  --color-day-100: #fef3c7;
+  --color-day-200: #fde68a;
+  --color-day-300: #fcd34d;
+  --color-day-500: #f59e0b;
+  --color-day-600: #d97706;
+  --color-day-700: #92400e;
+  --color-day-800: #78350f;
+  --color-day-900: #451a03;
+
+  /* Night call/shift: moon, a livelier violet relative of the brand ink. */
+  --color-night-50: #f3f1fd;
+  --color-night-100: #e6e1fa;
+  --color-night-200: #cbc0f5;
+  --color-night-300: #ab98ec;
+  --color-night-500: #7c6bd6;
+  --color-night-600: #6552c4;
+  --color-night-700: #4a3b9c;
+  --color-night-800: #362b73;
+  --color-night-900: #241d4d;
+
+  /* Dusk: the weekend/transition marker, a dawn/dusk peach that sits between
+     the day and night hues, so a weekend highlight looks like part of the
+     cycle rather than a random accent bolted on. */
+  --color-dusk-50: #fef6ed;
+  --color-dusk-100: #fbe8d3;
+  --color-dusk-200: #f8c78a;
+  --color-dusk-500: #e2924a;
+  --color-dusk-700: #9a5a1f;
+  --color-dusk-900: #4a2c10;
+
+  /* Vacation: deliberately teal, not green, so it never gets mistaken for
+     the "success" semantic color below; vacation is a domain fact, not an
+     outcome. */
+  --color-vacation-50: #eefbf9;
+  --color-vacation-100: #ccf1ee;
+  --color-vacation-500: #14b8a6;
+  --color-vacation-700: #0f766e;
+  --color-vacation-900: #0a3733;
+
+  /* --- Tier 3: Semantic (system feedback) --- what happened, independent of
+     domain. Kept visually distinct from the Tier 2 hues above: warning is
+     yellow-gold (not day's orange-amber), success is emerald (not
+     vacation's teal). */
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+  --color-danger-900: #450a0a;
+
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+  --color-success-900: #022c22;
+
+  --color-warning-50: #fefce8;
+  --color-warning-100: #fef9c3;
+  --color-warning-500: #eab308;
+  --color-warning-600: #ca8a04;
+  --color-warning-700: #a16207;
+  --color-warning-900: #422006;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  body {
+    @apply bg-stone-50 text-stone-800 m-0 p-0 antialiased font-sans dark:bg-stone-950 dark:text-stone-200;
+    line-height: 1.55;
+  }
+
+  h1 {
+    @apply text-[1.7rem] font-extrabold tracking-tight text-stone-900 mb-1 dark:text-stone-50;
+  }
+
+  h2 {
+    @apply text-lg font-bold tracking-tight text-stone-900 dark:text-stone-50;
+  }
+
+  /* Pseudo-elements (::selection, ::-webkit-scrollbar-*) can't carry the
+     :where(.dark, .dark *) custom variant directly, so their dark styling is
+     written as separate .dark-prefixed rules instead of dark: utilities. */
+  ::selection {
+    @apply bg-brand-100 text-brand-700;
+  }
+  .dark ::selection {
+    @apply bg-brand-800 text-brand-100;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-stone-300 rounded-full;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-stone-700;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-stone-400;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-stone-600;
+  }
+}
+
+@layer components {
+  .container {
+    @apply max-w-6xl mx-auto px-6 py-8;
+  }
+
+  .app-nav {
+    @apply flex items-center gap-1 bg-white/90 backdrop-blur border-b border-stone-200 px-6 py-3 flex-wrap dark:bg-stone-900/90 dark:border-stone-800;
+  }
+  .app-brand {
+    @apply flex items-center gap-2 font-extrabold text-stone-900 mr-4 tracking-tight dark:text-stone-50;
+  }
+
+  /* Theme toggle: quiet icon button, same neutral tier as .secondary. */
+  .theme-toggle {
+    @apply flex items-center justify-center rounded-full p-2 text-stone-500 bg-transparent border-none cursor-pointer transition-colors hover:bg-stone-100 hover:text-stone-900 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100;
+    box-shadow: none;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl p-6 mb-6 border border-stone-200/70 dark:bg-stone-900 dark:border-stone-800;
+    /* A warm-tinted shadow (brand ink, not flat black): the difference
+       between a card that feels like paper on a desk and one that feels
+       like a rendered box. */
+    box-shadow: 0 1px 2px rgba(35, 44, 87, 0.04), 0 8px 20px -12px rgba(35, 44, 87, 0.12);
+  }
+  .dark .card {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 20px -12px rgba(0, 0, 0, 0.4);
+  }
+  .card h2 {
+    @apply mb-4;
+  }
+
+  input,
+  select {
+    @apply px-3 py-2 border border-stone-300 rounded-xl text-sm mr-2.5 bg-white transition-shadow dark:bg-stone-800 dark:border-stone-700 dark:text-stone-100;
+  }
+  input:focus,
+  select:focus {
+    @apply outline-none ring-2 ring-brand-500/40 border-brand-500 dark:ring-brand-400/40 dark:border-brand-400;
+  }
+
+  /* Default button is quiet: an outlined neutral action. Solid brand fill
+     (.primary) is reserved for the one true call-to-action per section, so
+     it actually stands out instead of every button competing for attention. */
+  button {
+    @apply px-4 py-2 bg-white text-stone-700 border border-stone-300 rounded-xl cursor-pointer text-sm font-medium transition-all dark:bg-stone-800 dark:text-stone-200 dark:border-stone-600;
+    box-shadow: 0 1px 2px rgba(35, 44, 87, 0.04);
+  }
+  button:hover {
+    @apply bg-stone-50 border-stone-400 -translate-y-px dark:bg-stone-700 dark:border-stone-500;
+  }
+  button:focus-visible {
+    @apply outline-none ring-2 ring-brand-500/50 ring-offset-1 dark:ring-brand-400/50 dark:ring-offset-stone-900;
+  }
+  button:active {
+    @apply translate-y-0;
+  }
+  button:disabled {
+    @apply opacity-50 cursor-not-allowed translate-y-0;
+  }
+  button.primary {
+    @apply bg-brand-600 text-white border-brand-600 dark:bg-brand-500 dark:border-brand-500;
+    box-shadow: 0 2px 6px -1px rgba(35, 44, 87, 0.28);
+  }
+  button.primary:hover {
+    @apply bg-brand-700 border-brand-700 dark:bg-brand-400 dark:border-brand-400;
+  }
+  button.secondary {
+    @apply bg-stone-100 text-stone-700 border-transparent dark:bg-stone-800 dark:text-stone-300;
+    box-shadow: none;
+  }
+  button.secondary:hover {
+    @apply bg-stone-200 border-transparent dark:bg-stone-700;
+  }
+  button.danger {
+    @apply bg-danger-600 text-white border-danger-600;
+  }
+  button.danger:hover {
+    @apply bg-danger-700 border-danger-700;
+  }
+
+  .badge {
+    @apply inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ml-2;
+  }
+  .badge.required {
+    @apply bg-danger-50 text-danger-700 dark:bg-danger-900/50 dark:text-danger-100;
+  }
+  .badge.soft {
+    @apply bg-brand-50 text-brand-700 dark:bg-brand-800/50 dark:text-brand-100;
+  }
+
+  .schedule-grid {
+    display: grid;
+    /* minmax(0, 1fr), not bare 1fr: a bare 1fr track won't shrink below its
+       content's natural width (native time inputs are wide), so the last
+       column was overflowing past the card's right edge. */
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    @apply gap-1.5;
+  }
+
+  .day-cell {
+    @apply bg-white border border-stone-200 p-2.5 rounded-xl text-sm transition-shadow dark:bg-stone-900 dark:border-stone-800;
+    min-height: 80px;
+  }
+  .day-cell.weekend {
+    /* Light mode keeps the warm dusk tint from the duty-cycle gradient; dark
+       mode switches to a light purple instead, since the dark dusk brown
+       read as muddy against a near-black page. */
+    @apply bg-dusk-50 border-dusk-200 dark:bg-night-500/15 dark:border-night-300;
+  }
+
+  .day-header {
+    @apply font-semibold text-center text-xs uppercase tracking-wide text-brand-800 p-2.5 bg-brand-200 rounded-lg dark:text-brand-100 dark:bg-brand-700;
+  }
+
+  table {
+    @apply w-full border-collapse;
+  }
+  th,
+  td {
+    @apply p-3 text-left border-b border-stone-100 dark:border-stone-800;
+  }
+  th {
+    @apply bg-stone-50 font-semibold text-sm text-stone-500 dark:bg-stone-800/60 dark:text-stone-400;
+  }
+  tbody tr {
+    @apply transition-colors;
+  }
+  tbody tr:hover {
+    @apply bg-stone-50 dark:bg-stone-800/40;
+  }
+
+  .form-group {
+    @apply mb-4;
+  }
+  .form-group label {
+    @apply block mb-1.5 font-medium text-sm text-stone-700 dark:text-stone-300;
+  }
+  .form-group input,
+  .form-group select {
+    @apply w-full;
+    max-width: 300px;
+  }
+}
+
+@layer utilities {
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .slide-in-right {
+    animation: slide-in-right 0.22s ease-out;
+  }
+  .slide-in-left {
+    animation: slide-in-left 0.22s ease-out;
+  }
+  .fade-in {
+    animation: fade-in 0.25s ease-out;
+  }
+}
