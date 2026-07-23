@@ -163,14 +163,35 @@
 
 @layer components {
   .container {
-    @apply max-w-6xl mx-auto px-6 py-8;
+    @apply max-w-6xl mx-auto;
+    /* Fluid rather than a hard breakpoint snap: it shrinks continuously as
+       the viewport narrows instead of sitting at the desktop size right up
+       until it suddenly drops, which was wasting width the calendar could
+       otherwise use before it has to fall back to horizontal scrolling. */
+    padding-inline: clamp(0.5rem, 3vw, 1.5rem);
+    padding-block: clamp(1rem, 4vw, 2rem);
   }
 
   .app-nav {
     @apply flex items-center gap-1 bg-white/90 backdrop-blur border-b border-stone-200 px-6 py-3 flex-wrap dark:bg-stone-900/90 dark:border-stone-800;
   }
+  /* Also a link (back to Self-Check): no-underline plus its own hover color
+     instead of the pill-shaped nav a:hover treatment below, which is
+     reserved for actual nav tabs, not the logo. */
   .app-brand {
-    @apply flex items-center gap-2 font-extrabold text-stone-900 mr-4 tracking-tight dark:text-stone-50;
+    @apply flex items-center gap-2 font-extrabold text-stone-900 mr-4 tracking-tight no-underline transition-colors dark:text-stone-50;
+  }
+  .app-brand:hover {
+    @apply text-brand-600 dark:text-brand-300;
+  }
+  nav a:not(.app-brand) {
+    @apply flex items-center gap-1.5 text-stone-600 no-underline px-3.5 py-2 rounded-full text-sm font-medium transition-colors dark:text-stone-400;
+  }
+  nav a:not(.app-brand):hover {
+    @apply bg-stone-100 text-stone-900 dark:bg-stone-800 dark:text-stone-100;
+  }
+  nav a.active {
+    @apply bg-brand-600 text-white shadow-sm shadow-brand-600/30 dark:bg-brand-500 dark:shadow-brand-500/30;
   }
 
   /* Theme toggle: quiet icon button, same neutral tier as .secondary. */
@@ -180,7 +201,10 @@
   }
 
   .card {
-    @apply bg-white rounded-2xl p-6 mb-6 border border-stone-200/70 dark:bg-stone-900 dark:border-stone-800;
+    @apply bg-white rounded-2xl mb-6 border border-stone-200/70 dark:bg-stone-900 dark:border-stone-800;
+    /* Fluid rather than a hard breakpoint snap, for the same reason as
+       .container above. */
+    padding: clamp(0.5rem, 3vw, 1.5rem);
     /* A warm-tinted shadow (brand ink, not flat black): the difference
        between a card that feels like paper on a desk and one that feels
        like a rendered box. */
@@ -252,6 +276,37 @@
     @apply bg-brand-50 text-brand-700 dark:bg-brand-800/50 dark:text-brand-100;
   }
 
+  .switch {
+    @apply relative inline-block w-12 h-6;
+  }
+  .switch input {
+    @apply opacity-0 w-0 h-0;
+  }
+  .slider {
+    @apply absolute cursor-pointer inset-0 bg-stone-300 rounded-full transition-colors dark:bg-stone-700;
+  }
+  .slider:before {
+    content: "";
+    @apply absolute h-[18px] w-[18px] left-[3px] bottom-[3px] bg-white rounded-full transition-transform;
+  }
+  input:checked + .slider {
+    @apply bg-brand-600 dark:bg-brand-500;
+  }
+  input:checked + .slider:before {
+    transform: translateX(24px);
+  }
+
+  /* Compact variant for tight spaces like the add-shift popover. */
+  .switch-sm {
+    @apply w-7 h-4;
+  }
+  .switch-sm .slider:before {
+    @apply h-3 w-3 left-0.5 bottom-0.5;
+  }
+  .switch-sm input:checked + .slider:before {
+    transform: translateX(12px);
+  }
+
   .schedule-grid {
     display: grid;
     /* minmax(0, 1fr), not bare 1fr: a bare 1fr track won't shrink below its
@@ -259,6 +314,89 @@
        column was overflowing past the card's right edge. */
     grid-template-columns: repeat(7, minmax(0, 1fr));
     @apply gap-1.5;
+  }
+
+  /* On narrow viewports, 7 columns can't shrink further without becoming
+     unreadable (day numbers hidden behind the add-shift button): scroll
+     horizontally instead of squeezing the grid past a usable width. ~71px
+     column is the actual floor for that (tested down to 500px/7 cols);
+     shift-entry text ("5 PM–8 AM →") is allowed to wrap within its own box
+     below that, which is preferable to forcing a much wider grid — that
+     would trigger scrolling even on a merely half-sized screen — just to
+     keep it on one line. */
+  .calendar-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .calendar-scroll .schedule-grid {
+    min-width: 700px;
+  }
+
+  /* Same fluid scale as .container/.card's padding, so the fade shrinks
+     right along with it instead of staying a fixed width that's
+     disproportionately wide once the padding itself has thinned out. */
+  .calendar-edge-fade {
+    width: clamp(0.5rem, 3vw, 1.5rem);
+  }
+
+  /* The width a shift entry has to work with — an element can't run an
+     @container query against its own size to restyle itself, so this lives
+     on the day-cell's content wrapper (an ancestor of .shift-entry) rather
+     than on .shift-entry directly. */
+  .day-cell-content {
+    container-type: inline-size;
+  }
+
+  /* A shift entry: icon | time | delete, laid out as a container-queried
+     grid rather than plain flex, so the delete button can relocate (not
+     just wrap in place) once the cell is too narrow for all three side by
+     side. Padding lives here too, not on Tailwind's px-1/py-0.5 utilities —
+     those are in the utilities layer, which would always beat a components-
+     layer @container override regardless of source order. */
+  .shift-entry {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "icon time trash";
+    align-items: center;
+    column-gap: 4px;
+    padding: 2px 4px;
+  }
+  .shift-entry-icon {
+    grid-area: icon;
+  }
+  .shift-entry-time {
+    grid-area: time;
+    min-width: 0;
+  }
+  .shift-entry-trash {
+    grid-area: trash;
+  }
+  /* Always compact, not just once wrapped: a short time range ("5PM–8AM")
+     should stay on one line whenever it fits, so the dash can't force a
+     line-height wider than it needs to be even in the common case. If a
+     longer range ("12:30PM–1:45AM") doesn't fit and wraps naturally, this
+     same small size keeps that break from reading as a wasted blank line. */
+  .shift-entry-dash {
+    font-size: 0.6em;
+    line-height: 1;
+    opacity: 0.6;
+  }
+
+  /* Below this, there's no longer room for icon | time | delete side by
+     side: give the time text the full width by moving the delete button
+     under the icon instead of reserving a whole column for it, and tighten
+     the now-disproportionate left/right padding down to match the vertical
+     padding. The time text itself isn't forced into a stacked layout here —
+     it still wraps only if it actually needs to. */
+  @container (max-width: 90px) {
+    .shift-entry {
+      grid-template-columns: auto 1fr;
+      grid-template-areas:
+        "icon time"
+        "trash time";
+      align-items: start;
+      padding: 2px;
+    }
   }
 
   .day-cell {

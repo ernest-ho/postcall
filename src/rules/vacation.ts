@@ -48,6 +48,7 @@ export function checkVacationBlackout(
         residentId,
         detail: `On-call assigned ${s.date}, which is on or immediately before approved vacation`,
         severity: 'hard',
+        dates: [s.date],
       })
     }
   }
@@ -74,6 +75,9 @@ export function checkVacationBlackout(
               `${formatDateOnly(runStart)}-${formatDateOnly(runEnd)} vacation run`
             ),
             severity: 'hard',
+            // Just the call date itself, not the vacation run: the vacation
+            // days aren't the problem, the call on the adjacent weekend is.
+            dates: [s.date],
           })
         }
       }

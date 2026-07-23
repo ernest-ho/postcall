@@ -21,6 +21,11 @@ export interface Violation {
   residentId: string
   detail: string
   severity: Severity
+  // The exact calendar dates responsible, as structured data (not something
+  // the UI has to guess by parsing `detail`). Empty for whole-block-count
+  // violations (e.g. "worked 3 weekends this block") that aren't tied to a
+  // single specific day.
+  dates: string[]
 }
 
 export class RuleContext {
@@ -58,6 +63,11 @@ export interface RuleDef {
   kind: Severity
   params: Record<string, unknown>
   check: CheckFn
+  // A short, original plain-language explanation of what the rule actually
+  // does, not a quote from the agreement. For the exact legal wording, the
+  // Rules page links out to PARA's own published agreement instead of
+  // reproducing article text here.
+  explanation: string
 }
 
 export interface RuleSet {

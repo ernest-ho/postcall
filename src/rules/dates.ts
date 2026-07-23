@@ -54,3 +54,23 @@ export function formatDateTime(d: Date): string {
   const s = String(d.getSeconds()).padStart(2, '0')
   return `${y}-${m}-${day} ${h}:${min}:${s}`
 }
+
+// Rounds to 1 decimal and drops a pointless trailing ".0" (9.0hr reads worse
+// than 9hr; 9.5hr still needs the decimal).
+export function formatHours(n: number): string {
+  const rounded = Math.round(n * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}hr`
+}
+
+// Every calendar date (as YYYY-MM-DD) from start to end inclusive, walking
+// by local calendar day so it stays correct across DST transitions.
+export function dateRange(start: Date, end: Date): string[] {
+  const out: string[] = []
+  let cur = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+  while (cur <= last) {
+    out.push(formatDateOnly(cur))
+    cur = addDays(cur, 1)
+  }
+  return out
+}

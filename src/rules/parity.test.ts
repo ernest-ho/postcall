@@ -50,13 +50,38 @@ function ruleCheck(ruleId: string, shifts: AssignedShift[], residentId = 'r1', c
 }
 
 describe('IH-NO-CONSECUTIVE (Art 23.05(b))', () => {
-  it('violates on back-to-back days', () => {
+  it('violates on back-to-back days (only 9h between them, under the 10h guarantee)', () => {
     const shifts = [shift('2025-09-01'), shift('2025-09-02')]
-    expect(ruleCheck('IH-NO-CONSECUTIVE', shifts).some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+    expect(violations[0].dates).toEqual(['2025-09-01', '2025-09-02'])
   })
   it('passes with a gap', () => {
     const shifts = [shift('2025-09-01'), shift('2025-09-03')]
     expect(ruleCheck('IH-NO-CONSECUTIVE', shifts)).toEqual([])
+  })
+  it('reports every gap, not just the first (a gap check, not a day-run check)', () => {
+    // 3 consecutive in-house call days have 2 gaps between them (09-01→09-02
+    // and 09-02→09-03), each its own distinct violation worth its own row.
+    const shifts = [shift('2025-09-01'), shift('2025-09-02'), shift('2025-09-03')]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations).toHaveLength(2)
+    expect(violations[0].dates).toEqual(['2025-09-01', '2025-09-02'])
+    expect(violations[1].dates).toEqual(['2025-09-02', '2025-09-03'])
+  })
+  it('violates when followed by a regular shift with zero gap (the guarantee is 10h rest, not a duty-free calendar day)', () => {
+    const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'regular', startHour: 8, durationHours: 9 })]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+  })
+  it('passes when a regular shift starts a full 10h after the in-house call ends', () => {
+    const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'regular', startHour: 18, durationHours: 9 })]
+    expect(ruleCheck('IH-NO-CONSECUTIVE', shifts)).toEqual([])
+  })
+  it('violates when followed by a home call shift', () => {
+    const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'home' })]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
   })
 })
 
@@ -78,6 +103,15 @@ describe('IH-MAX-10D / HC-MAX-10D (max 4 per 10 days)', () => {
     const start = new Date(2025, 8, 1)
     const shifts = datesFrom(start, 5, 2).map(d => shift(d))
     expect(ruleCheck('IH-MAX-10D', shifts).some(v => v.ruleId === 'IH-MAX-10D')).toBe(true)
+  })
+  it('dates are the actual shift days, not the window\'s outer bounds', () => {
+    // Shifts every other day: 9-01, 9-03, 9-05, 9-07, 9-09 - 5 shifts inside
+    // the Sept 1-10 window, but the window's own bounds (9-01 to 9-10) are
+    // NOT all shift days; only the 5 sparse dates actually are.
+    const start = new Date(2025, 8, 1)
+    const shifts = datesFrom(start, 5, 2).map(d => shift(d))
+    const violations = ruleCheck('IH-MAX-10D', shifts)
+    expect(violations[0].dates).toEqual(['2025-09-01', '2025-09-03', '2025-09-05', '2025-09-07', '2025-09-09'])
   })
   it('passes at 4 in a 10-day span', () => {
     const start = new Date(2025, 8, 1)
@@ -123,6 +157,15 @@ describe('REST-MIN-GAP (Art 23.01(d)) incl. night-float exception', () => {
     const a = shift('2025-09-01', { startHour: 17, durationHours: 15 })
     const b = shift('2025-09-02', { startHour: 18, durationHours: 9, id: 'b' })
     expect(ruleCheck('REST-MIN-GAP', [a, b])).toEqual([])
+  })
+  it('reports every insufficient gap among 4 consecutive shifts, not just the first', () => {
+    // Each shift is 17:00-08:00 (15h), giving a 9h gap to the next one --
+    // 4 shifts means 3 gaps, and all 3 are under the 10h minimum.
+    const shifts = [1, 2, 3, 4].map(day =>
+      shift(`2025-09-0${day}`, { startHour: 17, durationHours: 15, id: `s${day}` }))
+    const violations = ruleCheck('REST-MIN-GAP', shifts)
+    expect(violations).toHaveLength(3)
+    expect(violations.every(v => v.ruleId === 'REST-MIN-GAP')).toBe(true)
   })
   it('back-to-back night float is exempt even with a short gap', () => {
     const start = new Date(2025, 8, 1)
