@@ -1,8 +1,11 @@
 // Ported from src/rules/vacation.py (main call-scheduler repo). Art 20.05:
-// vacation/call-scheduling interaction: no on-call duty may be scheduled
-// the day before or during a resident's vacation, and no on-call on the
-// weekend immediately before/after a run of 5+ consecutive weekday
-// vacation days.
+// vacation/call-scheduling interaction. No on-call duty may be scheduled
+// the day before or during a resident's vacation. For a run of 5+
+// consecutive weekday vacation days, the resident is guaranteed ONE of the
+// two adjacent weekends (immediately before or immediately after) free of
+// call — not both, and not neither: being scheduled on just one of them is
+// compliant; only being scheduled on both is a violation. This holds
+// regardless of how long the vacation run is.
 import type { AssignedShift, RuleContext, Violation } from './types'
 import { addDays, diffDays, formatDateOnly, parseDateOnly, pymod, pythonWeekday } from './dates'
 
@@ -59,27 +62,36 @@ export function checkVacationBlackout(
     const beforeKey = formatDateOnly(beforeWeekendFri)
     const afterKey = formatDateOnly(afterWeekendFri)
 
+    const beforeShifts: AssignedShift[] = []
+    const afterShifts: AssignedShift[] = []
     for (const s of shifts) {
       const shiftDate = parseDateOnly(s.date)
       const wd = pythonWeekday(shiftDate)
       if (wd === 5 || wd === 6) { // Sat or Sun
         const friOfWeekend = addDays(shiftDate, -(wd - 4))
         const friKey = formatDateOnly(friOfWeekend)
-        if (friKey === beforeKey || friKey === afterKey) {
-          violations.push({
-            ruleId: 'VAC-WEEKEND-ADJACENCY',
-            articleRef: 'PARA 2024-2028, Art 20.05',
-            residentId,
-            detail: (
-              `On-call assigned ${s.date}, a weekend adjacent to the ` +
-              `${formatDateOnly(runStart)}-${formatDateOnly(runEnd)} vacation run`
-            ),
-            severity: 'hard',
-            // Just the call date itself, not the vacation run: the vacation
-            // days aren't the problem, the call on the adjacent weekend is.
-            dates: [s.date],
-          })
-        }
+        if (friKey === beforeKey) beforeShifts.push(s)
+        else if (friKey === afterKey) afterShifts.push(s)
+      }
+    }
+
+    // The resident is guaranteed only ONE of the two weekends free — a
+    // violation requires BOTH to have call on them, not just one.
+    if (beforeShifts.length > 0 && afterShifts.length > 0) {
+      for (const s of [...beforeShifts, ...afterShifts]) {
+        violations.push({
+          ruleId: 'VAC-WEEKEND-ADJACENCY',
+          articleRef: 'PARA 2024-2028, Art 20.05(b)',
+          residentId,
+          detail: (
+            `On-call assigned ${s.date}, but only one of the two weekends adjacent to the ` +
+            `${formatDateOnly(runStart)}-${formatDateOnly(runEnd)} vacation run may be worked, and both are here`
+          ),
+          severity: 'hard',
+          // Just the call date itself, not the vacation run: the vacation
+          // days aren't the problem, the call on the adjacent weekend is.
+          dates: [s.date],
+        })
       }
     }
   }

@@ -207,8 +207,8 @@ export function buildRuleset(): RuleDef[] {
 
     { id: 'VAC-NO-CALL-BLACKOUT', articleRef: 'PARA 2024-2028, Art 20.05', title: 'No call day-before/during vacation', callTypes: vacTypes, kind: 'hard', params: {}, check: checkVacBlackout,
       explanation: 'No on-call duty may fall on the day before a resident\'s vacation starts, or during the vacation itself.' },
-    { id: 'VAC-WEEKEND-ADJACENCY', articleRef: 'PARA 2024-2028, Art 20.05', title: 'No call weekend adjacent to 5-day vacation run', callTypes: vacTypes, kind: 'hard', params: {}, check: checkVacWeekendAdjacency,
-      explanation: 'If a resident takes 5 or more consecutive weekdays of vacation, they can\'t be scheduled for on-call duty on the weekend immediately before or after that stretch.' },
+    { id: 'VAC-WEEKEND-ADJACENCY', articleRef: 'PARA 2024-2028, Art 20.05(b)', title: 'Only one weekend adjacent to 5-day vacation run may be worked', callTypes: vacTypes, kind: 'hard', params: {}, check: checkVacWeekendAdjacency,
+      explanation: 'If a resident takes 5 or more consecutive weekdays of vacation, they\'re guaranteed at least one of the two adjacent weekends (immediately before or immediately after) free of on-call duty. Being scheduled on one of them is fine; both is not.' },
 
     // Fairness weight categories, locally tunable burden preferences in the
     // admin app, not agreement-mandated rules, so no articleRef.

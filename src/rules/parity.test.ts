@@ -207,13 +207,27 @@ describe('VAC-NO-CALL-BLACKOUT / VAC-WEEKEND-ADJACENCY (Art 20.05)', () => {
     const a = shift('2025-09-10')
     expect(ruleCheck('VAC-NO-CALL-BLACKOUT', [a], 'r1', ctx)).toEqual([])
   })
-  it('flags the weekend immediately after a 5-day weekday vacation run', () => {
+  it('passes when only the following weekend is worked (one of two is guaranteed, not both)', () => {
     const monday = nextWeekday(new Date(2025, 8, 1), 0)
     const vacationRun = Array.from({ length: 5 }, (_, i) => formatYmd(addDays(monday, i)))
     const ctx = new RuleContext({ vacationDays: new Map([['r1', new Set(vacationRun)]]) })
     const followingSaturday = addDays(monday, 5)
     const a = shift(followingSaturday, { startHour: 8, durationHours: 9 })
-    expect(ruleCheck('VAC-WEEKEND-ADJACENCY', [a], 'r1', ctx).some(v => v.ruleId === 'VAC-WEEKEND-ADJACENCY')).toBe(true)
+    expect(ruleCheck('VAC-WEEKEND-ADJACENCY', [a], 'r1', ctx)).toEqual([])
+  })
+  it('violates when both adjacent weekends are worked', () => {
+    const monday = nextWeekday(new Date(2025, 8, 1), 0)
+    const vacationRun = Array.from({ length: 5 }, (_, i) => formatYmd(addDays(monday, i)))
+    const ctx = new RuleContext({ vacationDays: new Map([['r1', new Set(vacationRun)]]) })
+    const precedingSaturday = addDays(monday, -2)
+    const followingSaturday = addDays(monday, 5)
+    const shifts = [
+      shift(precedingSaturday, { startHour: 8, durationHours: 9, id: 'before' }),
+      shift(followingSaturday, { startHour: 8, durationHours: 9, id: 'after' }),
+    ]
+    const violations = ruleCheck('VAC-WEEKEND-ADJACENCY', shifts, 'r1', ctx)
+    expect(violations).toHaveLength(2)
+    expect(violations.every(v => v.ruleId === 'VAC-WEEKEND-ADJACENCY')).toBe(true)
   })
   it('does not flag a distant weekend', () => {
     const monday = nextWeekday(new Date(2025, 8, 1), 0)
