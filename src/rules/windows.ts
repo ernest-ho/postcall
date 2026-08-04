@@ -102,6 +102,12 @@ export function maxConsecutiveRunViolations(shifts: AssignedShift[], maxRun: num
 // One hit per anchor shift with insufficient following rest (mirrors
 // restGapViolations' per-instance style, since this is a gap check, not a
 // day-run check), not grouped into day-chains.
+//
+// Exception: a backup-to-backup transition is never a violation here. Two
+// back-to-back weekend backup call activations (LOU General Pediatrics
+// UofA 2026-2027), often only ~9h apart, are that LOU's own expected
+// pattern — BACKUP-WEEKEND-POST-CALL is its compensating safeguard, not
+// this shared in-house guarantee.
 export function guaranteedRestAfterViolation(
   anchorShifts: AssignedShift[], allShifts: AssignedShift[], minHours: number,
 ): RuleHit[] {
@@ -111,6 +117,7 @@ export function guaranteedRestAfterViolation(
     const later = ordered.filter(s => s.startDt.getTime() > anchor.startDt.getTime())
     if (later.length === 0) continue
     const next = later.reduce((a, b) => (a.startDt.getTime() <= b.startDt.getTime() ? a : b))
+    if (anchor.callType === 'backup' && next.callType === 'backup') continue
     const gapHours = (next.startDt.getTime() - anchor.endDt.getTime()) / 3_600_000
     if (gapHours < minHours) {
       hits.push({
@@ -175,6 +182,12 @@ export function restGapViolations(shifts: AssignedShift[], minHours: number): Ru
     // Back-to-back night-float duty blocks are explicitly allowed; no
     // PARA-mandated rest minimum applies at a NF-to-NF boundary.
     if (blockA[blockA.length - 1].callType === 'night_float' && blockB[0].callType === 'night_float') {
+      continue
+    }
+    // Same exception at a backup-to-backup boundary (LOU General Pediatrics
+    // UofA 2026-2027): back-to-back weekend backup activations are that
+    // LOU's own expected pattern, safeguarded by BACKUP-WEEKEND-POST-CALL.
+    if (blockA[blockA.length - 1].callType === 'backup' && blockB[0].callType === 'backup') {
       continue
     }
     const [, aEnd] = blockSpan(blockA)

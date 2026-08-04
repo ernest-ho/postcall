@@ -2,7 +2,14 @@
 // repo: check()-only subset (no CP-SAT encode()/ShiftSlot/RuleRegistry, since
 // this standalone tool only ever validates, never generates a schedule).
 
-export type CallType = 'in_house' | 'home' | 'night_float' | 'regular'
+// 'backup' is an ACTIVATED backup call shift (LOU General Pediatrics UofA
+// 2026-2027) — a resident on standby who actually gets called in. The LOU
+// converts its stipend from home call to in-house call, so it's treated as
+// in-house-equivalent for the shared duty-hour/rest/no-consecutive rules
+// (see para_2024_2028.ts), but kept separate from 'in_house' for the
+// 28-day/10-day/weekend call maximums, which the LOU caps independently via
+// its own points system (not modeled — see para_2024_2028_peds_uofa_lou.ts).
+export type CallType = 'in_house' | 'home' | 'night_float' | 'regular' | 'backup'
 
 export interface AssignedShift {
   shiftInstanceId: string

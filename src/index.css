@@ -103,6 +103,11 @@
 
   html {
     scroll-behavior: smooth;
+    /* Reserves the scrollbar's gutter permanently: without this, content
+       growing just past the viewport height (e.g. a day cell gaining a row
+       after adding a shift) makes the scrollbar appear, which narrows the
+       viewport and reflows/jiggles everything, including the calendar. */
+    scrollbar-gutter: stable;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -220,6 +225,19 @@
   input,
   select {
     @apply px-3 py-2 border border-stone-300 rounded-xl text-sm mr-2.5 bg-white transition-shadow dark:bg-stone-800 dark:border-stone-700 dark:text-stone-100;
+  }
+  /* Custom chevron (not the browser default): a native select's built-in
+     arrow ignores padding, so there's no reliable way to add breathing room
+     on either side of it without drawing our own and controlling its
+     background-position directly. */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 0.875rem;
   }
   input:focus,
   select:focus {

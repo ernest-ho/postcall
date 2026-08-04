@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import { CalendarClock, Moon, ShieldCheck, Sun } from 'lucide-react'
 import SelfCheckPage from './pages/SelfCheckPage'
 import RulesPage from './pages/RulesPage'
+import { RulesetProvider } from './context/RulesetContext'
 
 // HashRouter, not BrowserRouter: GitHub Pages serves static files with no
 // server-side rewrite, so a direct link to /rules would 404 on refresh with
@@ -50,26 +51,28 @@ function ThemeToggle() {
 
 function App() {
   return (
-    <HashRouter>
-      <nav className="app-nav">
-        <Link to="/" className="app-brand" title="Self-Check">
-          <CalendarClock size={20} className="text-brand-600 dark:text-brand-300" />
-          PostCall
-        </Link>
-        {NAV_ITEMS.map(item => (
-          <NavLink key={item.to} to={item.to} label={item.label} icon={item.icon} />
-        ))}
-        <span className="ml-auto">
-          <ThemeToggle />
-        </span>
-      </nav>
-      <div className="container">
-        <Routes>
-          <Route path="/" element={<SelfCheckPage />} />
-          <Route path="/rules" element={<RulesPage />} />
-        </Routes>
-      </div>
-    </HashRouter>
+    <RulesetProvider>
+      <HashRouter>
+        <nav className="app-nav">
+          <Link to="/" className="app-brand" title="Self-Check">
+            <CalendarClock size={20} className="text-brand-600 dark:text-brand-300" />
+            PostCall
+          </Link>
+          {NAV_ITEMS.map(item => (
+            <NavLink key={item.to} to={item.to} label={item.label} icon={item.icon} />
+          ))}
+          <span className="ml-auto">
+            <ThemeToggle />
+          </span>
+        </nav>
+        <div className="container">
+          <Routes>
+            <Route path="/" element={<SelfCheckPage />} />
+            <Route path="/rules" element={<RulesPage />} />
+          </Routes>
+        </div>
+      </HashRouter>
+    </RulesetProvider>
   )
 }
 

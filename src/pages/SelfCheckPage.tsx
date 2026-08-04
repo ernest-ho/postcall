@@ -1,10 +1,19 @@
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
-import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Home, Maximize2, Moon, Plus, RotateCcw, Stethoscope, Trash2, Umbrella, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Home, Maximize2, Moon, Plus, RotateCcw, Siren, Stethoscope, Trash2, Umbrella, type LucideIcon } from 'lucide-react'
 import { selfCheck } from '../rules/selfCheck'
 import type { CallType, Violation } from '../rules/types'
-import { buildRuleset } from '../rules/para_2024_2028'
+import { getRuleset } from '../rules/rulesets'
+import { useRuleset } from '../context/RulesetContext'
 
-type EntryType = 'ih_night' | 'ih_day' | 'hc_night' | 'hc_day' | 'nf_night' | 'regular' | 'vacation'
+// Only shown under the Peds LOU ruleset, or excluded from it: night float
+// and backup call are LOU-specific (base PARA has neither), while home
+// call isn't part of the Peds program at all (it runs in-house/NF/backup
+// instead) — see LOU_ONLY_TYPES/BASE_ONLY_TYPES below.
+const LOU_RULESET_VERSION = 'para_2024_2028_peds_uofa_lou'
+const LOU_ONLY_TYPES: EntryType[] = ['nf_night', 'backup']
+const BASE_ONLY_TYPES: EntryType[] = ['hc_night', 'hc_day']
+
+type EntryType = 'ih_night' | 'ih_day' | 'hc_night' | 'hc_day' | 'nf_night' | 'backup' | 'regular' | 'vacation'
 type ShiftType = Exclude<EntryType, 'vacation'>
 
 interface Entry {
@@ -52,21 +61,24 @@ const TYPE_LABEL: Record<EntryType, string> = {
   hc_night: 'Home Call Night',
   hc_day: 'Home Call Day',
   nf_night: 'Night Float',
+  backup: 'Backup Activated',
   regular: 'Regular Shift',
   vacation: 'Vacation',
 }
 
 // Icon shape = call type (where the duty happens): Building2 for in-house
 // (you're in the hospital), Home for home call, Moon for night float (its
-// own thing, no day twin), Stethoscope for regular clinic duty. Color = time
-// of day (night violet vs day amber), so the two axes stay independent and
-// in-house/home-call read as visually distinct even within the same time slot.
+// own thing, no day twin), Siren for an activated backup call shift,
+// Stethoscope for regular clinic duty. Color = time of day (night violet vs
+// day amber), so the two axes stay independent and in-house/home-call read
+// as visually distinct even within the same time slot.
 const TYPE_ICON: Record<EntryType, LucideIcon> = {
   ih_night: Building2,
   ih_day: Building2,
   hc_night: Home,
   hc_day: Home,
   nf_night: Moon,
+  backup: Siren,
   regular: Stethoscope,
   vacation: Umbrella,
 }
@@ -77,6 +89,7 @@ const TYPE_CLASSES: Record<EntryType, string> = {
   hc_night: 'bg-night-50 text-night-600 dark:bg-night-900/50 dark:text-night-300',
   hc_day: 'bg-day-50 text-day-600 dark:bg-day-900/50 dark:text-day-300',
   nf_night: 'bg-night-100 text-night-700 dark:bg-night-800/50 dark:text-night-200',
+  backup: 'bg-danger-50 text-danger-700 dark:bg-danger-900/50 dark:text-danger-200',
   regular: 'bg-day-100 text-day-700 dark:bg-day-800/50 dark:text-day-200',
   vacation: 'bg-vacation-100 text-vacation-700 dark:bg-vacation-900/50 dark:text-vacation-100',
 }
@@ -87,6 +100,7 @@ const CALL_TYPE: Record<ShiftType, CallType> = {
   hc_night: 'home',
   hc_day: 'home',
   nf_night: 'night_float',
+  backup: 'backup',
   regular: 'regular',
 }
 
@@ -102,14 +116,16 @@ const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string; endNextDay:
   // night-float nights are explicitly exempted from REST-MIN-GAP (see
   // src/rules/windows.ts), so this timing is fine for consecutive nights.
   nf_night: { start: '17:00', end: '08:00', endNextDay: true },
+  // Backup activations are most often overnight too, but can be a weekend
+  // day shift (08:00-17:00) just as easily — this is just the starting
+  // point, not a constraint on what gets entered.
+  backup: { start: '17:00', end: '08:00', endNextDay: true },
   regular: { start: '08:00', end: '17:00', endNextDay: false },
 }
 
-const RULE_TITLES: Record<string, string> = Object.fromEntries(buildRuleset().map(r => [r.id, r.title]))
-
 // Display order for the legend: day shifts before night shifts, in-house
 // before home call, vacation last since it's not a call type at all.
-const LEGEND_ORDER: EntryType[] = ['regular', 'ih_day', 'hc_day', 'ih_night', 'hc_night', 'nf_night', 'vacation']
+const LEGEND_ORDER: EntryType[] = ['regular', 'ih_day', 'hc_day', 'ih_night', 'hc_night', 'nf_night', 'backup', 'vacation']
 
 // Regular (non-call) daytime duty only happens on weekdays; on a weekend,
 // any daytime duty is in-house day call instead — they're mutually
@@ -121,9 +137,22 @@ function isTypeAllowedOnDay(type: EntryType, isWeekend: boolean): boolean {
   return true
 }
 
+// Night float and backup call are LOU-only; home call isn't part of the
+// LOU program at all (see LOU_ONLY_TYPES/BASE_ONLY_TYPES above) — gated by
+// which ruleset is selected, independent of day of week.
+function isTypeVisibleForRuleset(type: EntryType, isLouSelected: boolean): boolean {
+  if (LOU_ONLY_TYPES.includes(type) && !isLouSelected) return false
+  if (BASE_ONLY_TYPES.includes(type) && isLouSelected) return false
+  return true
+}
+
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const POPOVER_WIDTH = 172
+// The time row's fixed-width fields (2x30 wheel + ':' + 26 AM/PM square +
+// 22 expand toggle, plus gaps) need ~131px, so this can be meaningfully
+// narrower than before now that the wheel no longer stretches wider when
+// expanded — 172 was sized for that no-longer-happening stretch.
+const POPOVER_WIDTH = 152
 // Fallback only, used for the very first position calculation before the
 // popover has actually rendered and can be measured for real — an
 // overestimate here was leaving a large gap when the popover flipped to
@@ -412,10 +441,17 @@ function NumberWheelField({
   }
 
   return (
-    <div className="relative w-full" style={{ height: WHEEL_HEIGHT }}>
+    // Same fixed width as the collapsed box above (not w-full): expanding
+    // only grows this field's height into the wheel, never its width, so
+    // the row around it doesn't reflow/widen when toggled.
+    <div className="relative shrink-0" style={{ width: 30, height: WHEEL_HEIGHT }}>
       <WheelColumn items={items} value={value} onChange={onChange} highlight={highlight} scrollRef={scrollElRef} />
       <div
-        className="absolute left-0.5 right-0.5 rounded border border-stone-300 dark:border-stone-600 bg-brand-50 dark:bg-brand-900 pointer-events-none flex items-center justify-center"
+        // inset-x-0 (not left-0.5/right-0.5): this highlight box is the
+        // visible "cell" in expanded mode, the same way the bordered box is
+        // in collapsed mode — it needs to span this field's full width to
+        // actually match, not sit inset within it.
+        className="absolute inset-x-0 rounded border border-stone-300 dark:border-stone-600 bg-brand-50 dark:bg-brand-900 pointer-events-none flex items-center justify-center"
         style={{ top: WHEEL_PADDING, height: WHEEL_ITEM_HEIGHT }}
       >
         {/* The input overlays the wheel visually but sits OUTSIDE it in the
@@ -431,29 +467,34 @@ function NumberWheelField({
   )
 }
 
-// A square split into an AM button (top half) and a PM button (bottom
-// half) — a toggle, not a dropdown, since there are only ever two values.
+// A square showing AM on top / PM on bottom, but a single toggle, not two
+// independent buttons — tapping anywhere in the box (either half) flips
+// between the two, since there are only ever two values.
 function AmPmSquareToggle({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   return (
-    <div
-      className="flex flex-col rounded-md border border-stone-300 dark:border-stone-600 overflow-hidden shrink-0"
+    <button
+      type="button"
+      onClick={() => onChange(value === 'AM' ? 'PM' : 'AM')}
+      // hover:-translate-y-0/active:translate-y-0 override the global
+      // button's hover-lift/press-drop (see index.css): on a tap that's
+      // barely longer than a hover, this compact toggle would otherwise
+      // visibly jump down then back up in quick succession.
+      className="flex flex-col p-0 shadow-none rounded-md border border-stone-300 dark:border-stone-600 overflow-hidden shrink-0 hover:translate-y-0 active:translate-y-0"
       style={{ width: 26, height: 26 }}
     >
       {PERIODS.map(p => (
-        <button
+        <div
           key={p}
-          type="button"
-          onClick={() => onChange(p)}
-          className={`flex-1 w-full flex items-center justify-center p-0 m-0 border-0 rounded-none shadow-none text-[0.5rem] font-bold leading-none ${
+          className={`flex-1 w-full flex items-center justify-center text-[0.5rem] font-bold leading-none ${
             value === p
               ? 'bg-brand-600 text-white dark:bg-brand-500'
               : 'bg-white text-stone-400 dark:bg-stone-900 dark:text-stone-500'
           }`}
         >
           {p}
-        </button>
+        </div>
       ))}
-    </div>
+    </button>
   )
 }
 
@@ -590,6 +631,12 @@ export default function SelfCheckPage() {
   const [violations, setViolations] = useState<Violation[] | null>(null)
   const [compliant, setCompliant] = useState<boolean | null>(null)
   const [error, setError] = useState('')
+  const { rulesets, rulesetVersion, setRulesetVersion } = useRuleset()
+  const isLouSelected = rulesetVersion === LOU_RULESET_VERSION
+  const ruleTitles = useMemo(
+    () => Object.fromEntries(getRuleset(rulesetVersion).map(r => [r.id, r.title])) as Record<string, string>,
+    [rulesetVersion],
+  )
 
   // Recomputes the popover's position from the anchor button's CURRENT
   // screen location (not a stale snapshot) — called on open, whenever the
@@ -758,7 +805,7 @@ export default function SelfCheckPage() {
     // The remembered last-used type might not apply to this date (e.g. it
     // was a weekday "Regular Shift" and this cell is a weekend) — fall back
     // to the day-appropriate counterpart instead of a now-invalid type.
-    const type = isTypeAllowedOnDay(lastUsedType, isWeekend)
+    const type = isTypeAllowedOnDay(lastUsedType, isWeekend) && isTypeVisibleForRuleset(lastUsedType, isLouSelected)
       ? lastUsedType
       : (isWeekend ? 'ih_day' : 'regular')
 
@@ -834,11 +881,11 @@ export default function SelfCheckPage() {
       return
     }
 
-    const result = selfCheck(shifts, vacationDates)
+    const result = selfCheck(shifts, vacationDates, [], rulesetVersion)
     setViolations(result)
     setCompliant(result.length === 0)
     setError('')
-  }, [entriesByDate])
+  }, [entriesByDate, rulesetVersion])
 
   const clearAll = () => {
     setEntriesByDate({})
@@ -1003,7 +1050,7 @@ export default function SelfCheckPage() {
               {typeMenuOpen && (
                 <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white border border-stone-300 rounded-lg shadow-lg overflow-hidden dark:bg-stone-800 dark:border-stone-600">
                   {LEGEND_ORDER
-                    .filter(t => isTypeAllowedOnDay(t, isWeekend))
+                    .filter(t => isTypeAllowedOnDay(t, isWeekend) && isTypeVisibleForRuleset(t, isLouSelected))
                     .map(t => {
                       const Icon = TYPE_ICON[t]
                       return (
@@ -1086,6 +1133,19 @@ export default function SelfCheckPage() {
 
   return (
     <div>
+      {rulesets.length > 1 && (
+        <div className="card">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Ruleset</label>
+            <select value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
+              {rulesets.map(rs => (
+                <option key={rs.version} value={rs.version}>{rs.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       <p className="mb-5 text-stone-500 dark:text-stone-400">
         Add shifts and vacation days on the calendar below, then check them against the PARA
         agreement's hard rules. Nothing you enter leaves your browser.
@@ -1168,17 +1228,19 @@ export default function SelfCheckPage() {
         </div>
 
         <div className="flex gap-3 flex-wrap mt-4 text-xs">
-          {LEGEND_ORDER.map(t => {
-            const Icon = TYPE_ICON[t]
-            const count = countByType[t] ?? 0
-            return (
-              <span key={t} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${TYPE_CLASSES[t]}`}>
-                <Icon size={12} />
-                {TYPE_LABEL[t]}
-                {count > 0 && <span className="font-semibold tabular-nums opacity-70">{count}</span>}
-              </span>
-            )
-          })}
+          {LEGEND_ORDER
+            .filter(t => isTypeVisibleForRuleset(t, isLouSelected))
+            .map(t => {
+              const Icon = TYPE_ICON[t]
+              const count = countByType[t] ?? 0
+              return (
+                <span key={t} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${TYPE_CLASSES[t]}`}>
+                  <Icon size={12} />
+                  {TYPE_LABEL[t]}
+                  {count > 0 && <span className="font-semibold tabular-nums opacity-70">{count}</span>}
+                </span>
+              )
+            })}
         </div>
       </div>
 
@@ -1205,7 +1267,7 @@ export default function SelfCheckPage() {
                   <div className="flex justify-between items-start gap-4">
                     <div className="min-w-0">
                       <h3 className="text-base font-semibold text-stone-900 dark:text-stone-50 mb-0.5">
-                        {RULE_TITLES[v.ruleId] || v.ruleId}
+                        {ruleTitles[v.ruleId] || v.ruleId}
                       </h3>
                     </div>
                     {dateLabel && (

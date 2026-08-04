@@ -83,6 +83,14 @@ describe('IH-NO-CONSECUTIVE (Art 23.05(b))', () => {
     const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
     expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
   })
+  it('anchors on an activated backup call shift too', () => {
+    // An activated backup call shift (LOU General Pediatrics UofA
+    // 2026-2027) converts to an in-house stipend, so it anchors the same
+    // guarantee an actual in-house call shift would.
+    const shifts = [shift('2025-09-01', { callType: 'backup' }), shift('2025-09-02')]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+  })
 })
 
 describe('HC-MAX-CONSECUTIVE (Art 23.06(b))', () => {

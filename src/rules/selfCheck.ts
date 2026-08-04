@@ -4,7 +4,7 @@
 // returns PARA violations using the same validate() used everywhere else.
 import type { CallType, Violation } from './types'
 import { RuleContext } from './types'
-import { buildRuleset } from './para_2024_2028'
+import { getRuleset, RULESETS } from './rulesets'
 import { validate } from './validator'
 
 export interface SelfCheckShiftInput {
@@ -19,6 +19,7 @@ export function selfCheck(
   shifts: SelfCheckShiftInput[],
   vacationDates: string[],
   overrides: string[] = [],
+  rulesetVersion: string = RULESETS[0].version,
 ): Violation[] {
   const residentId = 'self'
   const assigned = shifts.map((s, i) => ({
@@ -43,5 +44,5 @@ export function selfCheck(
     overriddenRuleIds: new Map([[residentId, new Set(overrides)]]),
   })
 
-  return validate(assigned, buildRuleset(), ctx)
+  return validate(assigned, getRuleset(rulesetVersion), ctx)
 }

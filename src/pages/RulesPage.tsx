@@ -1,11 +1,13 @@
-import { Building2, ExternalLink, Home, Moon, Stethoscope, type LucideIcon } from 'lucide-react'
+import { Building2, ExternalLink, Home, Moon, Siren, Stethoscope, type LucideIcon } from 'lucide-react'
 import type { CallType } from '../rules/types'
-import { buildRuleset } from '../rules/para_2024_2028'
+import { getRuleset } from '../rules/rulesets'
+import { useRuleset } from '../context/RulesetContext'
 
 const CALL_TYPE_LABEL: Record<CallType, string> = {
   in_house: 'In-house',
   home: 'Home call',
   night_float: 'Night float',
+  backup: 'Backup Activated',
   regular: 'Regular',
 }
 
@@ -15,6 +17,7 @@ const CALL_TYPE_ICON: Record<CallType, LucideIcon> = {
   in_house: Building2,
   home: Home,
   night_float: Moon,
+  backup: Siren,
   regular: Stethoscope,
 }
 
@@ -23,13 +26,13 @@ const CALL_TYPE_ICON: Record<CallType, LucideIcon> = {
 // plain language without reproducing the agreement's text itself.
 const AGREEMENT_URL = 'https://www.para-ab.ca/agreement/agreement/'
 
-const RULES = buildRuleset()
-
 export default function RulesPage() {
-  const hardRules = RULES.filter(r => r.kind === 'hard').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
-  const fairnessRules = RULES.filter(r => r.kind === 'fairness').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
+  const { rulesets, rulesetVersion, setRulesetVersion } = useRuleset()
+  const rules = getRuleset(rulesetVersion)
+  const hardRules = rules.filter(r => r.kind === 'hard').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
+  const fairnessRules = rules.filter(r => r.kind === 'fairness').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
 
-  const renderRows = (list: typeof RULES) => (
+  const renderRows = (list: typeof rules) => (
     <div>
       {list.map(rule => (
         <div key={rule.id} className="py-4 border-b border-stone-100 dark:border-stone-800 last:border-b-0">
@@ -68,8 +71,24 @@ export default function RulesPage() {
   return (
     <div>
       <h1>PARA Rules Reference</h1>
+
+      {rulesets.length > 1 && (
+        <div className="card">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Ruleset</label>
+            <select value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
+              {rulesets.map(rs => (
+                <option key={rs.version} value={rs.version}>{rs.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       <div className="card bg-day-50! text-day-700! dark:bg-day-900/40! dark:text-day-100!">
-        These rules are drawn directly from the PARA Resident Physician Agreement (Article 20 and 23).
+        These rules are drawn directly from the PARA Resident Physician Agreement (Article 20 and 23),
+        or, when a Letter of Understanding ruleset is selected above, the specific variances that LOU
+        negotiates on top of it.
         <strong> Hard rules are what the Self-Check calendar checks your entered shifts against.</strong>{' '}
         Fairness rules are soft scheduling preferences used only by the admin scheduling tool this project
         is derived from; they don't affect your self-check results, but are listed here for reference. Each

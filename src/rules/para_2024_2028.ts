@@ -48,11 +48,21 @@ const checkIhMax10d: CheckFn = (shifts, residentId, _params, _ctx) => {
 // RuleDef below): in-house call anchors the guarantee, but home call, night
 // float, or a regular shift starting too soon after violates it just as
 // much as another in-house call would, so the gap check runs against all
-// of them.
-const checkIhNoConsecutive: CheckFn = (shifts, residentId, _params, _ctx) => {
-  const ihShifts = byType(shifts, 'in_house')
-  return toViolationsAll(windows.guaranteedRestAfterViolation(ihShifts, shifts, 10), 'IH-NO-CONSECUTIVE', 'PARA 2024-2028, Art 23.05(b)', residentId)
+// of them. An activated backup call shift (LOU General Pediatrics UofA
+// 2026-2027) anchors it too — its stipend converts from home call to
+// in-house call on activation, so it's clinically in-house duty here.
+//
+// minHours is parameterized (not always 10) because the LOU General
+// Pediatrics UofA 2026-2027 protects only 8 hours post-call, not the base
+// agreement's 10 — see para_2024_2028_peds_uofa_lou.ts.
+export function makeCheckIhNoConsecutive(minHours: number): CheckFn {
+  return (shifts, residentId, _params, _ctx) => {
+    const ihShifts = shifts.filter(s => s.callType === 'in_house' || s.callType === 'backup')
+    return toViolationsAll(windows.guaranteedRestAfterViolation(ihShifts, shifts, minHours), 'IH-NO-CONSECUTIVE', 'PARA 2024-2028, Art 23.05(b)', residentId)
+  }
 }
+
+const checkIhNoConsecutive: CheckFn = makeCheckIhNoConsecutive(10)
 
 const checkIhWeekendBlocks: CheckFn = (shifts, residentId, _params, _ctx) => {
   const relevant = byType(shifts, 'in_house')
@@ -113,8 +123,15 @@ const checkNfConsecWeekends: CheckFn = (shifts, residentId, _params, _ctx) => {
 
 // --- Shared hours/rest rules (Art 23.01, 23.04): apply to every call type. ---
 
-const checkRestMinGap: CheckFn = (shifts, residentId, _params, _ctx) =>
-  toViolationsAll(windows.restGapViolations(shifts, 10), 'REST-MIN-GAP', 'PARA 2024-2028, Art 23.01(d)', residentId)
+// minHours is parameterized (not always 10) because the LOU General
+// Pediatrics UofA 2026-2027 protects only 8 hours of minimum rest, not the
+// base agreement's 10 — see para_2024_2028_peds_uofa_lou.ts.
+export function makeCheckRestMinGap(minHours: number): CheckFn {
+  return (shifts, residentId, _params, _ctx) =>
+    toViolationsAll(windows.restGapViolations(shifts, minHours), 'REST-MIN-GAP', 'PARA 2024-2028, Art 23.01(d)', residentId)
+}
+
+const checkRestMinGap: CheckFn = makeCheckRestMinGap(10)
 
 const checkMaxDutyLength: CheckFn = (shifts, residentId, _params, _ctx) =>
   toViolations(windows.maxDutyLengthViolation(shifts, 26), 'MAX-DUTY-LENGTH', 'PARA 2024-2028, Art 23.01(f)/(g)', residentId)
@@ -165,8 +182,8 @@ export function buildRuleset(): RuleDef[] {
   const ihTypes = new Set<CallType>(['in_house'])
   const hcTypes = new Set<CallType>(['home'])
   const nfTypes = new Set<CallType>(['night_float'])
-  const sharedTypes = new Set<CallType>(['in_house', 'home', 'night_float', 'regular'])
-  const vacTypes = new Set<CallType>(['in_house', 'home', 'night_float'])
+  const sharedTypes = new Set<CallType>(['in_house', 'home', 'night_float', 'regular', 'backup'])
+  const vacTypes = new Set<CallType>(['in_house', 'home', 'night_float', 'backup'])
 
   return [
     { id: 'IH-MAX-28D', articleRef: 'PARA 2024-2028, Art 23.05(a)', title: 'Max in-house call per 28-day block', callTypes: ihTypes, kind: 'hard', params: {}, check: checkIhMax28d,
@@ -174,7 +191,7 @@ export function buildRuleset(): RuleDef[] {
     { id: 'IH-MAX-10D', articleRef: 'PARA 2024-2028, Art 23.05(a)', title: 'Max in-house call per 10-day period', callTypes: ihTypes, kind: 'hard', params: {}, check: checkIhMax10d,
       explanation: 'A resident can be assigned at most 4 in-house call shifts within any 10-day period.' },
     { id: 'IH-NO-CONSECUTIVE', articleRef: 'PARA 2024-2028, Art 23.05(b)', title: 'Guaranteed post-call rest', callTypes: sharedTypes, kind: 'hard', params: {}, check: checkIhNoConsecutive,
-      explanation: 'After an in-house call shift, a resident is guaranteed at least 10 hours of rest before their next duty — another call shift (in-house, home, or night float) or a regular shift starting too soon after violates it, even with no gap at all.' },
+      explanation: 'After an in-house call shift (or an activated backup call shift), a resident is guaranteed at least 10 hours of rest before their next duty — another call shift (in-house, home, night float, or backup) or a regular shift starting too soon after violates it, even with no gap at all.' },
     { id: 'IH-WEEKEND-BLOCKS', articleRef: 'PARA 2024-2028, Art 23.05(c)', title: 'Max 2 weekends worked per block', callTypes: ihTypes, kind: 'hard', params: {}, check: checkIhWeekendBlocks,
       explanation: 'A resident can be assigned in-house call on at most 2 weekends within a 28-day block.' },
     { id: 'IH-CONSEC-WEEKENDS', articleRef: 'PARA 2024-2028, Art 23.05(c)', title: 'Max 2 consecutive weekends worked', callTypes: ihTypes, kind: 'hard', params: {}, check: checkIhConsecWeekends,
