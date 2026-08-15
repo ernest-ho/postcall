@@ -334,23 +334,15 @@
     @apply gap-1.5;
   }
 
-  /* On narrow viewports, 7 columns can't shrink further without becoming
-     unreadable (day numbers hidden behind the add-shift button): scroll
-     horizontally instead of squeezing the grid past a usable width. ~71px
-     column is the actual floor for that (tested down to 500px/7 cols);
-     shift-entry text ("5 PM–8 AM →") is allowed to wrap within its own box
-     below that, which is preferable to forcing a much wider grid — that
-     would trigger scrolling even on a merely half-sized screen — just to
-     keep it on one line. */
+  /* Keep the seven calendar columns fluid. Narrow screens get a compact
+     layout below, so the full month remains visible without horizontal
+     scrolling. */
   .calendar-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    /* Otherwise the scrollbar track sits flush against the last calendar
-       row, with no breathing room at all between the two. */
-    padding-bottom: 10px;
+    overflow-x: visible;
+    /* Calendar content stays inside the card at every viewport width. */
   }
   .calendar-scroll .schedule-grid {
-    min-width: 700px;
+    min-width: 0;
   }
 
   /* Same fluid scale as .container/.card's padding, so the fade shrinks
@@ -360,7 +352,7 @@
     width: clamp(0.5rem, 3vw, 1.5rem);
   }
 
-  /* The width a shift entry has to work with — an element can't run an
+  /* The width a shift entry has to work with  -  an element can't run an
      @container query against its own size to restyle itself, so this lives
      on the day-cell's content wrapper (an ancestor of .shift-entry) rather
      than on .shift-entry directly. */
@@ -371,7 +363,7 @@
   /* A shift entry: icon | time | delete, laid out as a container-queried
      grid rather than plain flex, so the delete button can relocate (not
      just wrap in place) once the cell is too narrow for all three side by
-     side. Padding lives here too, not on Tailwind's px-1/py-0.5 utilities —
+     side. Padding lives here too, not on Tailwind's px-1/py-0.5 utilities  -
      those are in the utilities layer, which would always beat a components-
      layer @container override regardless of source order. */
   .shift-entry {
@@ -381,33 +373,78 @@
     align-items: center;
     column-gap: 4px;
     padding: 2px 4px;
+    position: relative;
+  }
+  /* The compact calendar entry is a single tap target. Its transparent
+     button sits behind the visible content; the remove control stays above
+     it as a separate action. */
+  .shift-entry-expand {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  button.shift-entry-expand:hover,
+  button.shift-entry-expand:active {
+    background: transparent;
+    border-color: transparent;
+    transform: none;
   }
   .shift-entry-icon {
     grid-area: icon;
+    position: relative;
+    z-index: 2;
   }
   .shift-entry-time {
     grid-area: time;
     min-width: 0;
+    position: relative;
+    z-index: 2;
   }
   .shift-entry-trash {
     grid-area: trash;
+    position: relative;
+    z-index: 3;
   }
   /* Always compact, not just once wrapped: a short time range ("5PM–8AM")
      should stay on one line whenever it fits, so the dash can't force a
      line-height wider than it needs to be even in the common case. If a
      longer range ("12:30PM–1:45AM") doesn't fit and wraps naturally, this
      same small size keeps that break from reading as a wasted blank line. */
-  .shift-entry-dash {
-    font-size: 0.6em;
-    line-height: 1;
-    opacity: 0.6;
+  .shift-entry-dash,
+  .shift-entry-mobile-dash {
+    display: inline-block;
+    margin-inline: 0.2em;
+    color: inherit;
+    opacity: 1;
+  }
+  .shift-entry-time-mobile {
+    display: none;
+  }
+  .shift-entry-period {
+    font-size: 0.55em;
+    opacity: 0.7;
+  }
+  .shift-entry-next-day {
+    margin-left: 0.15em;
+  }
+  .shift-entry-expanded-name,
+  .shift-entry-expanded-time {
+    display: none;
+    position: relative;
+    z-index: 2;
+    pointer-events: none;
   }
 
   /* Below this, there's no longer room for icon | time | delete side by
      side: give the time text the full width by moving the delete button
      under the icon instead of reserving a whole column for it, and tighten
      the now-disproportionate left/right padding down to match the vertical
-     padding. The time text itself isn't forced into a stacked layout here —
+     padding. The time text itself isn't forced into a stacked layout here  -
      it still wraps only if it actually needs to. */
   @container (max-width: 90px) {
     .shift-entry {
@@ -424,6 +461,29 @@
     @apply bg-white border border-stone-200 p-2.5 rounded-xl text-sm transition-shadow dark:bg-stone-900 dark:border-stone-800;
     min-height: 80px;
   }
+  .day-number-row {
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+    padding-right: 1.5rem;
+    font-size: 0.875rem;
+  }
+  .day-add-button {
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 22px;
+    height: 22px;
+  }
+  .day-violation-badge {
+    width: 18px;
+    height: 18px;
+  }
+  .incoming-entry {
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+    padding: 0.125rem 0.25rem;
+    font-size: 0.68rem;
+    line-height: 1.1;
+  }
   .day-cell.weekend {
     /* Light mode keeps the warm dusk tint from the duty-cycle gradient; dark
        mode switches to a light purple instead, since the dark dusk brown
@@ -435,6 +495,201 @@
     @apply font-semibold text-center text-xs uppercase tracking-wide text-brand-800 p-2.5 bg-brand-200 rounded-lg dark:text-brand-100 dark:bg-brand-700;
   }
 
+  @media (max-width: 639px) {
+    /* The calendar is the one place where every horizontal pixel matters.
+       Let its card reach the viewport edges while retaining breathing room
+       around its title and legend. */
+    .calendar-card {
+      margin-inline: clamp(-1.5rem, -3vw, -0.5rem);
+      padding-inline: 0.5rem;
+      border-inline-width: 0;
+      border-radius: 0;
+    }
+    .calendar-card-header,
+    .calendar-legend {
+      padding-inline: 0;
+    }
+    .schedule-grid {
+      gap: 2px;
+    }
+    .calendar-scroll {
+      overflow-x: hidden;
+    }
+    .day-header {
+      padding: 0.35rem 0.1rem;
+      border-radius: 0.5rem;
+      font-size: 0.6rem;
+      letter-spacing: 0;
+    }
+    .day-cell {
+      min-height: 68px;
+      padding: 2px;
+      border-radius: 0.5rem;
+      font-size: 0.65rem;
+    }
+    .day-number-row {
+      padding-right: 1.15rem;
+      gap: 0.15rem;
+      margin-bottom: 0.15rem;
+      /* The add control is absolutely positioned in this corner. Reserve
+         its full height before any incoming/current shift row can start,
+         preventing it from overlapping the first row's remove button. */
+      min-height: 18px;
+      font-size: 0.65rem;
+      line-height: 1.1;
+    }
+    .today-label {
+      display: none;
+    }
+    .day-add-button {
+      top: 3px;
+      right: 3px;
+      width: 18px;
+      height: 18px;
+    }
+    .day-add-button svg {
+      width: 11px;
+      height: 11px;
+    }
+    .day-violation-badge {
+      width: 15px;
+      height: 15px;
+    }
+    .day-violation-badge svg {
+      width: 10px;
+      height: 10px;
+    }
+    .incoming-entry {
+      justify-content: center;
+      gap: 1px;
+      padding: 1px;
+      font-size: 0.55rem;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .incoming-entry svg {
+      width: 9px;
+      height: 9px;
+    }
+    /* Keep the shift type and full time range on one row. The mobile time
+       form ("5p–8a") uses enough of the compact day cell to remain readable
+       without making the entry taller. */
+    .shift-entry {
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas: "icon time";
+      align-items: center;
+      column-gap: 1px;
+      padding: 1px;
+      line-height: 1.1;
+    }
+    .shift-entry-expand {
+      display: block;
+      cursor: pointer;
+    }
+    .shift-entry-icon,
+    .shift-entry-time {
+      pointer-events: none;
+    }
+    .shift-entry-icon {
+      display: block;
+      width: 10px;
+      height: 10px;
+    }
+    .shift-entry-time {
+      display: block;
+      max-width: 100%;
+      font-size: 0.58rem;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
+    }
+    .shift-entry-time-full {
+      display: none;
+    }
+    .shift-entry-time-mobile {
+      display: inline;
+    }
+    /* Compact entries use the global remove mode instead of spending a
+       column on a per-entry button. The button returns in detailed mode. */
+    .shift-entry-trash {
+      display: none;
+    }
+    .shift-entry.is-delete-mode {
+      box-shadow: inset 0 0 0 1px var(--color-danger-500);
+    }
+    /* Expanded entries use separate rows for the full shift name, time
+       range, and remove control, so the control cannot overlap the text. */
+    .shift-entry.is-expanded {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "name"
+        "time"
+        "trash";
+      align-items: start;
+      padding: 2px;
+    }
+    .shift-entry.is-expanded .shift-entry-icon {
+      display: none;
+    }
+    .shift-entry.is-expanded .shift-entry-trash {
+      display: block;
+      position: relative;
+      justify-self: end;
+      margin-top: 1px;
+    }
+    .shift-entry.is-expanded .shift-entry-time {
+      display: none;
+    }
+    .shift-entry.is-expanded .shift-entry-expanded-name {
+      display: block;
+      grid-area: name;
+      min-width: 0;
+      max-width: 100%;
+      padding-left: 0;
+      font-size: 0.55rem;
+      font-weight: 600;
+      line-height: 1.15;
+      margin-bottom: 1px;
+      overflow-wrap: anywhere;
+    }
+    .shift-entry.is-expanded .shift-entry-expanded-time {
+      display: block;
+      grid-area: time;
+      min-width: 0;
+      max-width: 100%;
+      font-size: 0.62rem;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .shift-entry-next-day {
+      display: none;
+    }
+    .shift-entry.is-expanded .shift-entry-next-day {
+      display: inline;
+    }
+    .shift-entry-trash {
+      width: 11px;
+      height: 11px;
+    }
+    .shift-entry-trash svg {
+      width: 9px;
+      height: 9px;
+    }
+  }
+  @media (max-width: 359px) {
+    /* At the very narrowest widths, the colour-coded entry and its compact
+       time range carry the information; dropping only the redundant icon
+       avoids clipping either time or the remove control. */
+    .shift-entry-icon {
+      display: none;
+    }
+    .shift-entry.is-expanded .shift-entry-expanded-name {
+      padding-left: 0;
+    }
+  }
   table {
     @apply w-full border-collapse;
   }
@@ -463,11 +718,24 @@
     @apply w-full;
     max-width: 300px;
   }
+  /* Ruleset and duty-model are presented as a paired configuration control.
+     Explicit font inheritance avoids browser-native select typography making
+     one selected value look different from the other. */
+  .schedule-setting-label {
+    @apply block mb-1.5 font-medium text-sm text-stone-700 dark:text-stone-300;
+  }
+  .schedule-setting-select,
+  .schedule-setting-select option {
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.25rem;
+  }
 
   /* Wheel time picker: each column is a native scroll container (mouse
      wheel, trackpad, and manual pointer-drag panning all just move
      scrollTop) so it stops dead at the first/last item instead of looping
-     — no custom physics needed, a plain bounded scroll region already
+      -  no custom physics needed, a plain bounded scroll region already
      can't wrap around. The scrollbar itself is hidden since the centered
      highlight band is the picker's only visual affordance. */
   .wheel-col {

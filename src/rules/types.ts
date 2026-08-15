@@ -3,13 +3,17 @@
 // this standalone tool only ever validates, never generates a schedule).
 
 // 'backup' is an ACTIVATED backup call shift (LOU General Pediatrics UofA
-// 2026-2027) — a resident on standby who actually gets called in. The LOU
+// 2026-2027)  -  a resident on standby who actually gets called in. The LOU
 // converts its stipend from home call to in-house call, so it's treated as
 // in-house-equivalent for the shared duty-hour/rest/no-consecutive rules
 // (see para_2024_2028.ts), but kept separate from 'in_house' for the
 // 28-day/10-day/weekend call maximums, which the LOU caps independently via
-// its own points system (not modeled — see para_2024_2028_peds_uofa_lou.ts).
+// its own points system (not modeled  -  see para_2024_2028_peds_uofa_lou.ts).
 export type CallType = 'in_house' | 'home' | 'night_float' | 'regular' | 'backup'
+export type CombinedCallPrimary = 'home' | 'in_house'
+// Art. 23.02 and 23.03 apply to a rotation's scheduled-duty model, not to
+// an individual call shift. Existing schedules default to standard duty.
+export type DutyModel = 'standard' | 'shift_based'
 
 export interface AssignedShift {
   shiftInstanceId: string
@@ -39,15 +43,21 @@ export class RuleContext {
   vacationDays: Map<string, Set<string>>
   daysOnService: Map<string, number>
   overriddenRuleIds: Map<string, Set<string>>
+  combinedCallPrimary: Map<string, CombinedCallPrimary>
+  dutyModel: Map<string, DutyModel>
 
   constructor(opts: {
     vacationDays?: Map<string, Set<string>>
     daysOnService?: Map<string, number>
     overriddenRuleIds?: Map<string, Set<string>>
+    combinedCallPrimary?: Map<string, CombinedCallPrimary>
+    dutyModel?: Map<string, DutyModel>
   } = {}) {
     this.vacationDays = opts.vacationDays ?? new Map()
     this.daysOnService = opts.daysOnService ?? new Map()
     this.overriddenRuleIds = opts.overriddenRuleIds ?? new Map()
+    this.combinedCallPrimary = opts.combinedCallPrimary ?? new Map()
+    this.dutyModel = opts.dutyModel ?? new Map()
   }
 
   isWaived(residentId: string, ruleId: string): boolean {

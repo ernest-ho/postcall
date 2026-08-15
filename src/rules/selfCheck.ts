@@ -2,7 +2,7 @@
 // the standalone entry point: takes a resident's own entered shifts (not
 // tied to any admin-generated schedule) plus their vacation dates, and
 // returns PARA violations using the same validate() used everywhere else.
-import type { CallType, Violation } from './types'
+import type { CallType, CombinedCallPrimary, DutyModel, Violation } from './types'
 import { RuleContext } from './types'
 import { getRuleset, RULESETS } from './rulesets'
 import { validate } from './validator'
@@ -15,11 +15,21 @@ export interface SelfCheckShiftInput {
   endDt: string // ISO datetime
 }
 
+function inferCombinedCallPrimary(shifts: Array<{ callType: CallType }>): CombinedCallPrimary | undefined {
+  const homeCount = shifts.filter(s => s.callType === 'home').length
+  const inHouseCount = shifts.filter(s => s.callType === 'in_house').length
+  if (homeCount === 0 || inHouseCount === 0) return undefined
+  // Equal counts are valid against the same Art. 23.07 boundary at every
+  // possible count, so either table produces the same pass/fail result.
+  return homeCount >= inHouseCount ? 'home' : 'in_house'
+}
+
 export function selfCheck(
   shifts: SelfCheckShiftInput[],
   vacationDates: string[],
   overrides: string[] = [],
   rulesetVersion: string = RULESETS[0].version,
+  dutyModel: DutyModel = 'standard',
 ): Violation[] {
   const residentId = 'self'
   const assigned = shifts.map((s, i) => ({
@@ -42,6 +52,11 @@ export function selfCheck(
     vacationDays: new Map([[residentId, vacationSet]]),
     daysOnService: new Map([[residentId, daysOnService]]),
     overriddenRuleIds: new Map([[residentId, new Set(overrides)]]),
+    combinedCallPrimary: (() => {
+      const primary = inferCombinedCallPrimary(assigned)
+      return primary ? new Map([[residentId, primary]]) : new Map()
+    })(),
+    dutyModel: new Map([[residentId, dutyModel]]),
   })
 
   return validate(assigned, getRuleset(rulesetVersion), ctx)

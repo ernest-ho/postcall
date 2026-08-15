@@ -1,5 +1,5 @@
 import { Building2, ExternalLink, Home, Moon, Siren, Stethoscope, type LucideIcon } from 'lucide-react'
-import type { CallType } from '../rules/types'
+import type { CallType, DutyModel } from '../rules/types'
 import { getRuleset } from '../rules/rulesets'
 import { useRuleset } from '../context/RulesetContext'
 
@@ -27,7 +27,7 @@ const CALL_TYPE_ICON: Record<CallType, LucideIcon> = {
 const AGREEMENT_URL = 'https://www.para-ab.ca/agreement/agreement/'
 
 export default function RulesPage() {
-  const { rulesets, rulesetVersion, setRulesetVersion } = useRuleset()
+  const { rulesets, rulesetVersion, setRulesetVersion, dutyModel, setDutyModel } = useRuleset()
   const rules = getRuleset(rulesetVersion)
   const hardRules = rules.filter(r => r.kind === 'hard').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
   const fairnessRules = rules.filter(r => r.kind === 'fairness').sort((a, b) => a.articleRef.localeCompare(b.articleRef))
@@ -72,15 +72,28 @@ export default function RulesPage() {
     <div>
       <h1>PARA Rules Reference</h1>
 
-      {rulesets.length > 1 && (
+      {(rulesets.length > 1 || rulesetVersion === 'para_2024_2028') && (
         <div className="card">
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Ruleset</label>
-            <select value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
-              {rulesets.map(rs => (
-                <option key={rs.version} value={rs.version}>{rs.name}</option>
-              ))}
-            </select>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            {rulesets.length > 1 && (
+              <div className="form-group flex-1" style={{ marginBottom: 0 }}>
+                <label className="schedule-setting-label">Ruleset</label>
+                <select className="schedule-setting-select" value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
+                  {rulesets.map(rs => (
+                    <option key={rs.version} value={rs.version}>{rs.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {rulesetVersion === 'para_2024_2028' && (
+              <div className="form-group flex-1" style={{ marginBottom: 0 }}>
+                <label className="schedule-setting-label">Duty model</label>
+                <select className="schedule-setting-select" value={dutyModel} onChange={e => setDutyModel(e.target.value as DutyModel)}>
+                  <option value="standard">Standard duty</option>
+                  <option value="shift_based">Shift-based duty</option>
+                </select>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -103,6 +116,15 @@ export default function RulesPage() {
           read PARA's agreement directly <ExternalLink size={12} />
         </a>.
       </div>
+
+      {rulesetVersion === 'para_2024_2028' && (
+        <div className="card">
+          <h2>Duty models</h2>
+          <p className="text-sm text-stone-600 dark:text-stone-300">
+            Standard duty is weekday daytime work. Shift-based duty is the rotation&apos;s scheduled coverage work, permits weekend shifts, and applies the 60-hour weekly cap and no-additional-call rule.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <h2>Hard Rules ({hardRules.length})</h2>

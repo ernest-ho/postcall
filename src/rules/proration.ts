@@ -2,33 +2,31 @@
 // (in-house) / 23.06 (home call) pro-ration: call maximums are a stepped
 // day-bracket table keyed on days-on-service, not a continuous formula.
 //
-// NOTE: only two rows of the in-house table are independently confirmed
-// against the source text: "1-6 days -> 1 call" and "31-34 days -> 8 calls."
-// The intermediate bracket boundaries are a reasonable interpolation, not
-// verified line-by-line against the PDF, and the home-call table has no
-// independently confirmed rows at all. Same caveat as the Python source.
+// These brackets are transcribed from the Art. 23.05(a) and 23.06(a)
+// tables in the PARA 2024-2028 agreement.
 
 const IN_HOUSE_BRACKETS: Array<[number, number, number]> = [
   [1, 6, 1], // confirmed against source text
   [7, 10, 2],
-  [11, 13, 3],
-  [14, 17, 4],
-  [18, 20, 5],
-  [21, 24, 6],
-  [25, 30, 7], // includes day 28 (full block) at the base cap of 7
-  [31, 34, 8], // confirmed against source text (beyond a 28-day block)
+  [11, 14, 3],
+  [15, 18, 4],
+  [19, 22, 5],
+  [23, 26, 6],
+  [27, 30, 7],
+  [31, 34, 8], // Only the first and last rotation may exceed 28 days.
 ]
 
 const HOME_CALL_BRACKETS: Array<[number, number, number]> = [
-  [1, 3, 1],
-  [4, 6, 2],
-  [7, 10, 3],
-  [11, 13, 4],
-  [14, 17, 5],
+  [1, 5, 1],
+  [6, 8, 2],
+  [9, 11, 3],
+  [12, 14, 4],
+  [15, 17, 5],
   [18, 20, 6],
-  [21, 24, 7],
-  [25, 27, 8],
-  [28, 28, 9],
+  [21, 23, 7],
+  [24, 26, 8],
+  [27, 29, 9],
+  [30, 32, 10],
 ]
 
 function bracketLookup(daysOnService: number, brackets: Array<[number, number, number]>): number {

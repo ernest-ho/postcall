@@ -3,11 +3,12 @@
 // the day before or during a resident's vacation. For a run of 5+
 // consecutive weekday vacation days, the resident is guaranteed ONE of the
 // two adjacent weekends (immediately before or immediately after) free of
-// call — not both, and not neither: being scheduled on just one of them is
+// call  -  not both, and not neither: being scheduled on just one of them is
 // compliant; only being scheduled on both is a violation. This holds
 // regardless of how long the vacation run is.
 import type { AssignedShift, RuleContext, Violation } from './types'
 import { addDays, diffDays, formatDateOnly, parseDateOnly, pymod, pythonWeekday } from './dates'
+import { weekendKey } from './windows'
 
 // Returns (start, end) date pairs for runs of 5+ consecutive weekdays
 // (Mon-Fri) that are all on vacation.
@@ -43,13 +44,19 @@ export function checkVacationBlackout(
 
   for (const s of shifts) {
     const shiftDate = parseDateOnly(s.date)
-    const dayAfter = addDays(shiftDate, 1) // shift is the day immediately before vacation starts
-    if (vacationDates.has(s.date) || vacationDates.has(formatDateOnly(dayAfter))) {
+    const dayAfter = addDays(shiftDate, 1)
+    const isDuringVacation = vacationDates.has(s.date)
+    // The preceding-day prohibition is for an on-call duty or a shift that
+    // runs past midnight. A regular daytime shift the day before is allowed.
+    const runsPastMidnight = s.endDt > new Date(dayAfter)
+    const isProhibitedPreVacationDuty = vacationDates.has(formatDateOnly(dayAfter)) &&
+      (s.callType !== 'regular' || runsPastMidnight)
+    if (isDuringVacation || isProhibitedPreVacationDuty) {
       violations.push({
         ruleId: 'VAC-NO-CALL-BLACKOUT',
         articleRef: 'PARA 2024-2028, Art 20.05',
         residentId,
-        detail: `On-call assigned ${s.date}, which is on or immediately before approved vacation`,
+        detail: `Duty assigned ${s.date}, which is prohibited during or immediately before approved vacation`,
         severity: 'hard',
         dates: [s.date],
       })
@@ -65,17 +72,12 @@ export function checkVacationBlackout(
     const beforeShifts: AssignedShift[] = []
     const afterShifts: AssignedShift[] = []
     for (const s of shifts) {
-      const shiftDate = parseDateOnly(s.date)
-      const wd = pythonWeekday(shiftDate)
-      if (wd === 5 || wd === 6) { // Sat or Sun
-        const friOfWeekend = addDays(shiftDate, -(wd - 4))
-        const friKey = formatDateOnly(friOfWeekend)
-        if (friKey === beforeKey) beforeShifts.push(s)
-        else if (friKey === afterKey) afterShifts.push(s)
-      }
+      const key = weekendKey(s.startDt, s.endDt)
+      if (key === beforeKey) beforeShifts.push(s)
+      else if (key === afterKey) afterShifts.push(s)
     }
 
-    // The resident is guaranteed only ONE of the two weekends free — a
+    // The resident is guaranteed only ONE of the two weekends free  -  a
     // violation requires BOTH to have call on them, not just one.
     if (beforeShifts.length > 0 && afterShifts.length > 0) {
       for (const s of [...beforeShifts, ...afterShifts]) {

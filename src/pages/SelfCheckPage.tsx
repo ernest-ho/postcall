@@ -1,14 +1,14 @@
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Home, Maximize2, Moon, Plus, RotateCcw, Siren, Stethoscope, Trash2, Umbrella, type LucideIcon } from 'lucide-react'
 import { selfCheck } from '../rules/selfCheck'
-import type { CallType, Violation } from '../rules/types'
+import type { CallType, DutyModel, Violation } from '../rules/types'
 import { getRuleset } from '../rules/rulesets'
 import { useRuleset } from '../context/RulesetContext'
 
 // Only shown under the Peds LOU ruleset, or excluded from it: night float
 // and backup call are LOU-specific (base PARA has neither), while home
 // call isn't part of the Peds program at all (it runs in-house/NF/backup
-// instead) — see LOU_ONLY_TYPES/BASE_ONLY_TYPES below.
+// instead)  -  see LOU_ONLY_TYPES/BASE_ONLY_TYPES below.
 const LOU_RULESET_VERSION = 'para_2024_2028_peds_uofa_lou'
 const LOU_ONLY_TYPES: EntryType[] = ['nf_night', 'backup']
 const BASE_ONLY_TYPES: EntryType[] = ['hc_night', 'hc_day']
@@ -25,7 +25,7 @@ interface Entry {
 }
 
 // Everything entered lives only in the browser (per the page's own intro
-// text) — localStorage, not a server — so it survives a reload/tab close
+// text)  -  localStorage, not a server  -  so it survives a reload/tab close
 // instead of vanishing the moment the page unmounts.
 const ENTRIES_STORAGE_KEY = 'postcall.entries'
 
@@ -50,7 +50,7 @@ function loadStoredEntries(): Record<string, Entry[]> {
     }
     return result
   } catch {
-    // Corrupt/unparseable data shouldn't crash the page — just start fresh.
+    // Corrupt/unparseable data shouldn't crash the page  -  just start fresh.
     return {}
   }
 }
@@ -117,7 +117,7 @@ const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string; endNextDay:
   // src/rules/windows.ts), so this timing is fine for consecutive nights.
   nf_night: { start: '17:00', end: '08:00', endNextDay: true },
   // Backup activations are most often overnight too, but can be a weekend
-  // day shift (08:00-17:00) just as easily — this is just the starting
+  // day shift (08:00-17:00) just as easily  -  this is just the starting
   // point, not a constraint on what gets entered.
   backup: { start: '17:00', end: '08:00', endNextDay: true },
   regular: { start: '08:00', end: '17:00', endNextDay: false },
@@ -127,18 +127,17 @@ const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string; endNextDay:
 // before home call, vacation last since it's not a call type at all.
 const LEGEND_ORDER: EntryType[] = ['regular', 'ih_day', 'hc_day', 'ih_night', 'hc_night', 'nf_night', 'backup', 'vacation']
 
-// Regular (non-call) daytime duty only happens on weekdays; on a weekend,
-// any daytime duty is in-house day call instead — they're mutually
-// exclusive by day of week, so the add-shift picker only ever offers one
-// or the other for a given date.
-function isTypeAllowedOnDay(type: EntryType, isWeekend: boolean): boolean {
-  if (type === 'regular' && isWeekend) return false
+// Standard-duty regular work is limited to weekdays. A shift-based rotation
+// may instead enter a regular scheduled shift on a weekend; in-house day call
+// remains available as a separate on-call entry.
+function isTypeAllowedOnDay(type: EntryType, isWeekend: boolean, dutyModel: DutyModel = 'standard'): boolean {
+  if (type === 'regular' && isWeekend) return dutyModel === 'shift_based'
   if (type === 'ih_day' && !isWeekend) return false
   return true
 }
 
 // Night float and backup call are LOU-only; home call isn't part of the
-// LOU program at all (see LOU_ONLY_TYPES/BASE_ONLY_TYPES above) — gated by
+// LOU program at all (see LOU_ONLY_TYPES/BASE_ONLY_TYPES above)  -  gated by
 // which ruleset is selected, independent of day of week.
 function isTypeVisibleForRuleset(type: EntryType, isLouSelected: boolean): boolean {
   if (LOU_ONLY_TYPES.includes(type) && !isLouSelected) return false
@@ -151,10 +150,10 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 // The time row's fixed-width fields (2x30 wheel + ':' + 26 AM/PM square +
 // 22 expand toggle, plus gaps) need ~131px, so this can be meaningfully
 // narrower than before now that the wheel no longer stretches wider when
-// expanded — 172 was sized for that no-longer-happening stretch.
+// expanded  -  172 was sized for that no-longer-happening stretch.
 const POPOVER_WIDTH = 152
 // Fallback only, used for the very first position calculation before the
-// popover has actually rendered and can be measured for real — an
+// popover has actually rendered and can be measured for real  -  an
 // overestimate here was leaving a large gap when the popover flipped to
 // open above the button.
 const POPOVER_FALLBACK_HEIGHT = 220
@@ -197,8 +196,21 @@ function formatTime12hParts(hhmm: string): { main: string; period: string } {
   return { main: m === 0 ? `${h}` : `${h}:${pad(m)}`, period }
 }
 
+// The monthly grid has room for only a very short time range on a phone.
+// This keeps both endpoints visible ("5p–8a") while treating its p/a marker
+// exactly like the smaller AM/PM marker in the normal calendar layout.
+function CompactTimeLabel({ value }: { value: string }) {
+  const { main, period } = formatTime12hParts(value)
+  return (
+    <>
+      {main}
+      <span className="shift-entry-period">{period[0].toLowerCase()}</span>
+    </>
+  )
+}
+
 // AM/PM rendered smaller and muted relative to the hour itself, the way a
-// clock face de-emphasizes it — keeps a calendar entry compact without
+// clock face de-emphasizes it  -  keeps a calendar entry compact without
 // losing the information.
 function TimeLabel({ value }: { value: string }) {
   const { main, period } = formatTime12hParts(value)
@@ -210,7 +222,7 @@ function TimeLabel({ value }: { value: string }) {
   )
 }
 
-// Fixed height for the Start/End section, in EITHER mode — the compact
+// Fixed height for the Start/End section, in EITHER mode  -  the compact
 // (both fields collapsed) layout's own natural size, measured directly, not
 // the other way around: expanding a field must fit its wheel INTO this
 // budget rather than growing the popover to fit the wheel. A popover that
@@ -219,7 +231,7 @@ function TimeLabel({ value }: { value: string }) {
 const TIME_SECTION_HEIGHT = 138
 
 // Sized (row count × row height) to fit inside TIME_SECTION_HEIGHT once the
-// field label and outer margin are accounted for — see the budget math
+// field label and outer margin are accounted for  -  see the budget math
 // below. A wheel picker still wants at least a few rows above/below center
 // to read as a wheel at all, so this trades item height down rather than
 // dropping to fewer rows.
@@ -251,10 +263,10 @@ function to24h(hour: number, minute: number, period: Period): string {
 
 // One vertically-scrollable column of numbers. Mouse wheel/trackpad scroll
 // and a manual pointer-drag both just move the container's native
-// scrollTop, so it settles on whichever row is centered — and, being a
+// scrollTop, so it settles on whichever row is centered  -  and, being a
 // plain bounded scroll region (not a custom physics loop), it stops dead
 // at the first/last item instead of wrapping around. Rendered plain (no
-// input) — NumberWheelField below overlays the editable input on top of
+// input)  -  NumberWheelField below overlays the editable input on top of
 // this when expanded.
 function WheelColumn({
   items, value, onChange, highlight, scrollRef,
@@ -275,7 +287,7 @@ function WheelColumn({
   const settleTimeoutRef = useRef<number | undefined>(undefined)
   const index = items.indexOf(value)
 
-  // Keep the wheel in sync when the value changes from outside a drag —
+  // Keep the wheel in sync when the value changes from outside a drag  -
   // typing into the overlaid input, or an AM/PM toggle click elsewhere in
   // the same field.
   useEffect(() => {
@@ -287,7 +299,7 @@ function WheelColumn({
   const nearestIndex = (el: HTMLDivElement) =>
     Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / WHEEL_ITEM_HEIGHT)))
 
-  // No row-level "selected" styling to update here at all — the embedded
+  // No row-level "selected" styling to update here at all  -  the embedded
   // input overlay (NumberWheelField) already shows the live value directly
   // on top of the center row, so there's nothing for this wheel itself to
   // highlight or keep in sync, and no lag/mismatch to chase during a fast
@@ -301,7 +313,7 @@ function WheelColumn({
   }
 
   // Only the smooth snap-into-place is debounced until scrolling actually
-  // stops — the live value above already tracks the nearest row instantly.
+  // stops  -  the live value above already tracks the nearest row instantly.
   const snapToNearest = () => {
     const el = ref.current
     if (!el) return
@@ -372,7 +384,7 @@ function WheelColumn({
 
 // Hour or minute, as either a small standalone input (collapsed) or the
 // same input embedded at the fixed center of a scrollable wheel (expanded)
-// — same value, same typing/Enter behavior either way. The center overlay
+//  -  same value, same typing/Enter behavior either way. The center overlay
 // sits at a fixed pixel band (not a fixed DOM row), fully occluding
 // whatever number happens to be scrolled behind it, so scrolling and
 // typing stay in sync without ever showing two conflicting values.
@@ -392,7 +404,7 @@ function NumberWheelField({
   const overlayRef = useRef<HTMLDivElement | null>(null)
 
   // React attaches wheel listeners as passive, so preventDefault() inside a
-  // JSX onWheel prop is silently ignored — without it, this wheel event
+  // JSX onWheel prop is silently ignored  -  without it, this wheel event
   // would also bubble up and scroll the popover/page underneath, since (see
   // below) the overlay isn't actually inside the scrollable wheel column.
   // A plain addEventListener with passive:false is the only way to stop
@@ -449,7 +461,7 @@ function NumberWheelField({
       <div
         // inset-x-0 (not left-0.5/right-0.5): this highlight box is the
         // visible "cell" in expanded mode, the same way the bordered box is
-        // in collapsed mode — it needs to span this field's full width to
+        // in collapsed mode  -  it needs to span this field's full width to
         // actually match, not sit inset within it.
         className="absolute inset-x-0 rounded border border-stone-300 dark:border-stone-600 bg-brand-50 dark:bg-brand-900 pointer-events-none flex items-center justify-center"
         style={{ top: WHEEL_PADDING, height: WHEEL_ITEM_HEIGHT }}
@@ -457,7 +469,7 @@ function NumberWheelField({
         {/* The input overlays the wheel visually but sits OUTSIDE it in the
             DOM (it's a sibling, not a descendant, of the scrollable div
             above), so the browser has no scrollable ancestor to route a
-            wheel event to when the cursor is over the center row — the
+            wheel event to when the cursor is over the center row  -  the
             effect above forwards it manually to the wheel's own scrollTop. */}
         <div ref={overlayRef} className="pointer-events-auto w-full h-full">
           {inputEl}
@@ -468,7 +480,7 @@ function NumberWheelField({
 }
 
 // A square showing AM on top / PM on bottom, but a single toggle, not two
-// independent buttons — tapping anywhere in the box (either half) flips
+// independent buttons  -  tapping anywhere in the box (either half) flips
 // between the two, since there are only ever two values.
 function AmPmSquareToggle({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   return (
@@ -502,7 +514,7 @@ function AmPmSquareToggle({ value, onChange }: { value: Period; onChange: (p: Pe
 // (hour input, minute input, AM/PM square) with no scrolling in sight; the
 // icon on the right expands it into the full scrollable wheel, with the
 // same inputs now embedded at its center so typing still works even while
-// it's scrollable. Every edit — typed, toggled, or scrolled — applies
+// it's scrollable. Every edit  -  typed, toggled, or scrolled  -  applies
 // straight to the calendar entry immediately; there's no separate confirm
 // step beyond the popover's own Add button.
 function TimeField({
@@ -555,7 +567,7 @@ function TimeField({
 // timestamps: this reformats them for display only, into something a
 // resident can actually read at a glance, without changing what the engine
 // itself produces. (The calendar highlight below uses violation.dates
-// directly, not these regexes — dates are structured data from the rule
+// directly, not these regexes  -  dates are structured data from the rule
 // engine, not something parsed back out of this display text.)
 const ISO_DATETIME_RE = /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):\d{2}/g
 const ISO_DATE_RE = /(\d{4})-(\d{2})-(\d{2})/g
@@ -603,10 +615,17 @@ export default function SelfCheckPage() {
   useEffect(() => {
     localStorage.setItem(ENTRIES_STORAGE_KEY, JSON.stringify(entriesByDate))
   }, [entriesByDate])
-  // Gates the reset button behind an explicit confirmation — clearing every
+  // Gates the reset button behind an explicit confirmation  -  clearing every
   // entered shift/vacation day is a one-click-undoable-only-by-retyping-
   // everything action, so it shouldn't fire from a single stray click.
   const [confirmingReset, setConfirmingReset] = useState(false)
+  // A phone-sized month grid shows a compact summary by default. One entry
+  // can be expanded at a time to reveal its type and full time range.
+  const [expandedEntryKey, setExpandedEntryKey] = useState<string | null>(null)
+  // On phones, removing via a dedicated mode keeps the compact entry free
+  // to show its complete time range. Individual remove buttons remain
+  // available after expanding an entry.
+  const [deleteMode, setDeleteMode] = useState(false)
   const [addingFor, setAddingFor] = useState<string | null>(null)
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null)
   // The button that opened the current popover, so its position can be
@@ -617,7 +636,7 @@ export default function SelfCheckPage() {
   const [typeMenuOpen, setTypeMenuOpen] = useState(false)
   // Start and End are always visible as compact hour/minute fields; this
   // only tracks which one (if either) currently has its full scrollable
-  // wheel expanded — at most one at a time, so the popover doesn't grow
+  // wheel expanded  -  at most one at a time, so the popover doesn't grow
   // to double height for no reason.
   const [expandedField, setExpandedField] = useState<'start' | 'end' | null>(null)
   const [draftType, setDraftType] = useState<EntryType>('ih_night')
@@ -631,7 +650,7 @@ export default function SelfCheckPage() {
   const [violations, setViolations] = useState<Violation[] | null>(null)
   const [compliant, setCompliant] = useState<boolean | null>(null)
   const [error, setError] = useState('')
-  const { rulesets, rulesetVersion, setRulesetVersion } = useRuleset()
+  const { rulesets, rulesetVersion, setRulesetVersion, dutyModel, setDutyModel } = useRuleset()
   const isLouSelected = rulesetVersion === LOU_RULESET_VERSION
   const ruleTitles = useMemo(
     () => Object.fromEntries(getRuleset(rulesetVersion).map(r => [r.id, r.title])) as Record<string, string>,
@@ -639,7 +658,7 @@ export default function SelfCheckPage() {
   )
 
   // Recomputes the popover's position from the anchor button's CURRENT
-  // screen location (not a stale snapshot) — called on open, whenever the
+  // screen location (not a stale snapshot)  -  called on open, whenever the
   // popover's own content changes size, and on scroll/resize, so it keeps
   // tracking its date cell instead of drifting or opening with a gap sized
   // for a height it never actually has.
@@ -737,7 +756,7 @@ export default function SelfCheckPage() {
   }
 
   // Bumped on every Jump-to-Today click (even when already on the current
-  // month) so the effect below always fires — separate from year/month so
+  // month) so the effect below always fires  -  separate from year/month so
   // it doesn't also re-trigger on ordinary prev/next month navigation.
   const [todayJumpTick, setTodayJumpTick] = useState(0)
 
@@ -756,7 +775,7 @@ export default function SelfCheckPage() {
   // .calendar-scroll); a month switch alone only resets that scroll to its
   // left edge, which doesn't necessarily show today's column at all (e.g.
   // if today falls on a Friday, the leftmost Sun-Thu view still leaves it
-  // off-screen) — and if the month wasn't changing at all, nothing would
+  // off-screen)  -  and if the month wasn't changing at all, nothing would
   // reset the scroll position in the first place. Explicitly scroll
   // today's cell into view either way.
   useEffect(() => {
@@ -791,7 +810,7 @@ export default function SelfCheckPage() {
 
   // Fixed (viewport-relative) rather than anchored to the day cell, so it
   // can't get clipped by the calendar's horizontal-scroll container or run
-  // off the edge of the screen when opened from a cell near the border —
+  // off the edge of the screen when opened from a cell near the border  -
   // position is computed from the button's own screen location and clamped
   // to stay fully on-screen.
   const openAddForm = (date: string, anchorEl: HTMLElement) => {
@@ -803,9 +822,9 @@ export default function SelfCheckPage() {
     const weekday = new Date(`${date}T00:00:00`).getDay()
     const isWeekend = weekday === 0 || weekday === 6
     // The remembered last-used type might not apply to this date (e.g. it
-    // was a weekday "Regular Shift" and this cell is a weekend) — fall back
+    // was a weekday "Regular Shift" and this cell is a weekend)  -  fall back
     // to the day-appropriate counterpart instead of a now-invalid type.
-    const type = isTypeAllowedOnDay(lastUsedType, isWeekend) && isTypeVisibleForRuleset(lastUsedType, isLouSelected)
+    const type = isTypeAllowedOnDay(lastUsedType, isWeekend, dutyModel) && isTypeVisibleForRuleset(lastUsedType, isLouSelected)
       ? lastUsedType
       : (isWeekend ? 'ih_day' : 'regular')
 
@@ -847,6 +866,7 @@ export default function SelfCheckPage() {
 
   const removeEntry = (date: string, key: string) => {
     setEntriesByDate(prev => ({ ...prev, [date]: getEntries(date).filter(e => e.key !== key) }))
+    setExpandedEntryKey(current => current === key ? null : current)
     setViolations(null)
     setCompliant(null)
   }
@@ -881,14 +901,16 @@ export default function SelfCheckPage() {
       return
     }
 
-    const result = selfCheck(shifts, vacationDates, [], rulesetVersion)
+    const result = selfCheck(shifts, vacationDates, [], rulesetVersion, dutyModel)
     setViolations(result)
     setCompliant(result.length === 0)
     setError('')
-  }, [entriesByDate, rulesetVersion])
+  }, [dutyModel, entriesByDate, rulesetVersion])
 
   const clearAll = () => {
     setEntriesByDate({})
+    setExpandedEntryKey(null)
+    setDeleteMode(false)
     setAddingFor(null)
     setViolations(null)
     setCompliant(null)
@@ -909,7 +931,7 @@ export default function SelfCheckPage() {
   }, [entriesByDate])
 
   // Not every violation names a specific day (e.g. "worked 3 weekends this
-  // block" is a whole-block count, not tied to one date) — those have an
+  // block" is a whole-block count, not tied to one date)  -  those have an
   // empty v.dates and just won't get a calendar highlight.
   const violationsByDate = useMemo(() => {
     const map = new Map<string, Violation[]>()
@@ -944,7 +966,17 @@ export default function SelfCheckPage() {
         key={date}
         data-date={date}
         className={`day-cell${isWeekend ? ' weekend' : ''}${dayViolations ? ' border-danger-500! dark:border-danger-500!' : ''}`}
-        style={{ minHeight: 100, position: 'relative' }}
+        style={{ position: 'relative' }}
+        onClick={event => {
+          // Buttons, shifts, and continuation labels have their own actions.
+          // Every other part of a day's blank background opens the same add
+          // form as its visible + button, using that button as the anchor.
+          const target = event.target as HTMLElement
+          if (target.closest('button, .shift-entry, .incoming-entry')) return
+          if (addingFor === date) return
+          const addButton = event.currentTarget.querySelector<HTMLButtonElement>('[data-add-shift]')
+          if (addButton) openAddForm(date, addButton)
+        }}
       >
         {/* Dimming for other-month days only wraps the day's own content, not
             the add-button/popover below: `opacity` creates a new stacking
@@ -955,13 +987,13 @@ export default function SelfCheckPage() {
           {/* pr-6 reserves room for the absolutely-positioned add button in
               the top-right corner, so a long "23 • today" label plus the
               violation badge wraps instead of running underneath it. */}
-          <div className={`flex items-center gap-1 font-bold mb-1 text-sm flex-wrap pr-6 ${isToday ? 'text-brand-600 dark:text-brand-300' : ''}`}>
-            <span>{dayOfMonth}{isToday && ' • today'}</span>
+          <div className={`day-number-row flex items-center font-bold flex-wrap ${isToday ? 'text-brand-600 dark:text-brand-300' : ''}`}>
+            <span>{dayOfMonth}</span>
+            {isToday && <span className="today-label"> • today</span>}
             {dayViolations && (
               <span
                 title={`Violates: ${[...new Set(dayViolations.map(v => v.ruleId))].join(', ')}`}
-                className="flex items-center justify-center rounded-full bg-danger-100 text-danger-700 dark:bg-danger-900/70 dark:text-danger-200 shrink-0"
-                style={{ width: 18, height: 18 }}
+                className="day-violation-badge flex items-center justify-center rounded-full bg-danger-100 text-danger-700 dark:bg-danger-900/70 dark:text-danger-200 shrink-0"
               >
                 <AlertTriangle size={11} />
               </span>
@@ -970,41 +1002,98 @@ export default function SelfCheckPage() {
 
           {incoming.map(e => {
             const Icon = TYPE_ICON[e.type]
+            const isExpanded = expandedEntryKey === e.key
             return (
-              <div
+              <button
+                type="button"
                 key={`cont-${e.key}`}
-                className={`flex items-center gap-1 rounded border border-dashed border-stone-400 mb-1 px-1 py-0.5 text-[0.68rem] opacity-85 ${TYPE_CLASSES[e.type]}`}
+                onClick={() => {
+                  if (deleteMode) {
+                    removeEntry(prevDate, e.key)
+                    return
+                  }
+                  setExpandedEntryKey(current => current === e.key ? null : e.key)
+                }}
+                aria-expanded={isExpanded}
+                aria-label={deleteMode
+                  ? `Remove ${TYPE_LABEL[e.type]}`
+                  : `Expand ${TYPE_LABEL[e.type]} details`}
+                className={`incoming-entry flex items-center rounded border border-dashed border-stone-400 opacity-85 shadow-none hover:translate-y-0 ${TYPE_CLASSES[e.type]}`}
               >
                 <Icon size={11} className="shrink-0" />
                 <span>until <TimeLabel value={e.end} /></span>
-              </div>
+              </button>
             )
           })}
 
           {sortedEntries.map(e => {
             const Icon = TYPE_ICON[e.type]
+            const isExpanded = expandedEntryKey === e.key
             return (
               <div
                 key={e.key}
                 title={TYPE_LABEL[e.type]}
-                className={`shift-entry rounded border border-stone-200 dark:border-stone-700 mb-1 text-xs ${TYPE_CLASSES[e.type]}`}
+                className={`shift-entry${isExpanded ? ' is-expanded' : ''}${deleteMode ? ' is-delete-mode' : ''} rounded border border-stone-200 dark:border-stone-700 mb-1 text-xs ${TYPE_CLASSES[e.type]}`}
               >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deleteMode) {
+                      removeEntry(date, e.key)
+                      return
+                    }
+                    setExpandedEntryKey(current => current === e.key ? null : e.key)
+                  }}
+                  aria-expanded={isExpanded}
+                  aria-label={deleteMode
+                    ? `Remove ${TYPE_LABEL[e.type]}`
+                    : `${isExpanded ? 'Collapse' : 'Expand'} ${TYPE_LABEL[e.type]} details`}
+                  className="shift-entry-expand"
+                />
                 <Icon size={13} className="shift-entry-icon shrink-0" />
                 {e.type === 'vacation' ? (
-                  <span className="shift-entry-time">{TYPE_LABEL[e.type]}</span>
+                  <span className="shift-entry-time">
+                    <span className="shift-entry-time-full">{TYPE_LABEL[e.type]}</span>
+                    <span className="shift-entry-time-mobile" aria-hidden="true">Off</span>
+                  </span>
                 ) : (
                   <span className="shift-entry-time">
-                    <span className="shift-entry-time-value"><TimeLabel value={e.start} /></span>
-                    <span className="shift-entry-dash">–</span>
-                    <span className="shift-entry-time-value">
-                      <TimeLabel value={e.end} />
-                      {e.endNextDay && <span className="text-[0.8em] opacity-60"> →</span>}
+                    <span className="shift-entry-time-full">
+                      <span className="shift-entry-time-value"><TimeLabel value={e.start} /></span>
+                      <span className="shift-entry-dash">-</span>
+                      <span className="shift-entry-time-value">
+                        <TimeLabel value={e.end} />
+                        {e.endNextDay && <span className="shift-entry-next-day text-[0.8em] opacity-60">→</span>}
+                      </span>
+                    </span>
+                    <span className="shift-entry-time-mobile" aria-hidden="true">
+                      <CompactTimeLabel value={e.start} />
+                      <span className="shift-entry-mobile-dash">-</span>
+                      <CompactTimeLabel value={e.end} />
                     </span>
                   </span>
                 )}
+                <span className="shift-entry-expanded-name">{TYPE_LABEL[e.type]}</span>
+                <span className="shift-entry-expanded-time">
+                  {e.type === 'vacation' ? (
+                    'All day'
+                  ) : (
+                    <>
+                      <TimeLabel value={e.start} />
+                      <span className="shift-entry-dash">-</span>
+                      <TimeLabel value={e.end} />
+                      {e.endNextDay && <span className="shift-entry-next-day text-[0.8em] opacity-60">→</span>}
+                    </>
+                  )}
+                </span>
                 <button
-                  onClick={() => removeEntry(date, e.key)}
-                  title="Remove"
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation()
+                    removeEntry(date, e.key)
+                  }}
+                  title={`Remove ${TYPE_LABEL[e.type]}`}
+                  aria-label={`Remove ${TYPE_LABEL[e.type]}`}
                   className="shift-entry-trash bg-transparent! text-stone-400 hover:text-danger-600! hover:bg-danger-50! border-none rounded-md p-0 cursor-pointer transition-colors"
                 >
                   <Trash2 size={13} />
@@ -1017,8 +1106,8 @@ export default function SelfCheckPage() {
         <button
           onClick={e => (addingFor === date ? setAddingFor(null) : openAddForm(date, e.currentTarget))}
           title="Add shift or vacation"
-          className={`absolute top-2 right-2 z-[2] flex items-center justify-center rounded-full p-0 bg-brand-50 text-brand-600 border-brand-100 shadow-none dark:bg-brand-900/60 dark:text-brand-300 dark:border-brand-700 transition-opacity hover:opacity-100${isOtherMonth ? ' opacity-45' : ''}`}
-          style={{ width: 22, height: 22 }}
+          data-add-shift
+          className={`day-add-button absolute z-[2] flex items-center justify-center rounded-full p-0 bg-brand-50 text-brand-600 border-brand-100 shadow-none dark:bg-brand-900/60 dark:text-brand-300 dark:border-brand-700 transition-opacity hover:opacity-100${isOtherMonth ? ' opacity-45' : ''}`}
         >
           <Plus size={14} />
         </button>
@@ -1026,6 +1115,7 @@ export default function SelfCheckPage() {
         {addingFor === date && (
           <div
             ref={popoverRef}
+            onClick={event => event.stopPropagation()}
             className="fixed z-10 bg-white border border-stone-300 rounded-xl p-1.5 shadow-lg dark:bg-stone-800 dark:border-stone-600"
             style={{ top: popoverPos?.top ?? 0, left: popoverPos?.left ?? 0, width: POPOVER_WIDTH }}
           >
@@ -1050,7 +1140,7 @@ export default function SelfCheckPage() {
               {typeMenuOpen && (
                 <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white border border-stone-300 rounded-lg shadow-lg overflow-hidden dark:bg-stone-800 dark:border-stone-600">
                   {LEGEND_ORDER
-                    .filter(t => isTypeAllowedOnDay(t, isWeekend) && isTypeVisibleForRuleset(t, isLouSelected))
+                    .filter(t => isTypeAllowedOnDay(t, isWeekend, dutyModel) && isTypeVisibleForRuleset(t, isLouSelected))
                     .map(t => {
                       const Icon = TYPE_ICON[t]
                       return (
@@ -1075,13 +1165,13 @@ export default function SelfCheckPage() {
                 <button className="secondary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false); setExpandedField(null) }}>Cancel</button>
               </div>
             ) : (
-              // Fixed height in EITHER mode (see TIME_SECTION_HEIGHT) — only
+              // Fixed height in EITHER mode (see TIME_SECTION_HEIGHT)  -  only
               // what's inside reflows between the two layouts, so expanding a
               // field never changes the popover's own size or position.
               <div style={{ height: TIME_SECTION_HEIGHT }} className="flex flex-col">
                 {expandedField !== null ? (
                   // Expanding a field takes over everything below the
-                  // shift-type selector — the other field, "ends next day",
+                  // shift-type selector  -  the other field, "ends next day",
                   // and Add/Cancel all step aside so the wheel has the whole
                   // section to itself. The checkmark returns them.
                   <TimeField
@@ -1118,8 +1208,8 @@ export default function SelfCheckPage() {
                       </label>
                     </div>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="primary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => confirmAdd(date)}>Add</button>
-                      <button className="secondary" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false); setExpandedField(null) }}>Cancel</button>
+                      <button className="primary flex-1" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => confirmAdd(date)}>Add</button>
+                      <button className="secondary flex-1" style={{ padding: '2px 6px', fontSize: '0.7rem' }} onClick={() => { setAddingFor(null); setTypeMenuOpen(false); setExpandedField(null) }}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -1133,15 +1223,28 @@ export default function SelfCheckPage() {
 
   return (
     <div>
-      {rulesets.length > 1 && (
+      {(rulesets.length > 1 || !isLouSelected) && (
         <div className="card">
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Ruleset</label>
-            <select value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
-              {rulesets.map(rs => (
-                <option key={rs.version} value={rs.version}>{rs.name}</option>
-              ))}
-            </select>
+          <div className="flex flex-col gap-4 sm:flex-row">
+          {rulesets.length > 1 && (
+            <div className="form-group flex-1" style={{ marginBottom: 0 }}>
+              <label className="schedule-setting-label">Ruleset</label>
+              <select className="schedule-setting-select" value={rulesetVersion} onChange={e => setRulesetVersion(e.target.value)}>
+                {rulesets.map(rs => (
+                  <option key={rs.version} value={rs.version}>{rs.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {!isLouSelected && (
+            <div className="form-group flex-1" style={{ marginBottom: 0 }}>
+              <label className="schedule-setting-label">Duty model</label>
+              <select className="schedule-setting-select" value={dutyModel} onChange={e => setDutyModel(e.target.value as DutyModel)}>
+                <option value="standard">Standard duty</option>
+                <option value="shift_based">Shift-based duty</option>
+              </select>
+            </div>
+          )}
           </div>
         </div>
       )}
@@ -1151,13 +1254,13 @@ export default function SelfCheckPage() {
         agreement's hard rules. Nothing you enter leaves your browser.
       </p>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+      <div className="card calendar-card">
+        <div className="calendar-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
           <h2 style={{ marginBottom: 0 }}>
             {new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' })} {year}
           </h2>
           <div className="flex items-center gap-2">
-            {/* Mirrors the floating prev/next buttons below, but inline —
+            {/* Mirrors the floating prev/next buttons below, but inline  -
                 those are hidden on mobile since there's no room for them to
                 straddle the card border without sitting outside the
                 viewport, so this is the only way to page months there. */}
@@ -1170,6 +1273,17 @@ export default function SelfCheckPage() {
             </button>
             <button className="secondary p-2" onClick={() => setConfirmingReset(true)} title="Reset">
               <RotateCcw size={16} />
+            </button>
+            <button
+              className={`${deleteMode ? 'danger' : 'secondary'} sm:hidden p-2`}
+              onClick={() => {
+                setDeleteMode(active => !active)
+                setExpandedEntryKey(null)
+              }}
+              title={deleteMode ? 'Done removing shifts' : 'Remove shifts'}
+              aria-pressed={deleteMode}
+            >
+              <Trash2 size={16} />
             </button>
           </div>
         </div>
@@ -1227,7 +1341,7 @@ export default function SelfCheckPage() {
           />
         </div>
 
-        <div className="flex gap-3 flex-wrap mt-4 text-xs">
+        <div className="calendar-legend flex gap-3 flex-wrap mt-4 text-xs">
           {LEGEND_ORDER
             .filter(t => isTypeVisibleForRuleset(t, isLouSelected))
             .map(t => {

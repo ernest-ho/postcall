@@ -55,22 +55,7 @@ describe('ruleset registry', () => {
   })
 })
 
-describe('IH-NO-CONSECUTIVE (LOU): protects only 8h post-call, not the base 10h', () => {
-  it('a 9h gap passes under the LOU\'s 8h protection', () => {
-    // A 9h gap would violate the base ruleset's 10h guarantee, but this
-    // LOU protects only 8 hours.
-    const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'regular', startHour: 17, durationHours: 9 })]
-    expect(ruleCheck('IH-NO-CONSECUTIVE', shifts)).toEqual([])
-  })
-  it('a 7h gap still violates under the LOU\'s 8h protection', () => {
-    const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'regular', startHour: 15, durationHours: 9 })]
-    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
-    expect(violations.length).toBe(1)
-    expect(violations[0].ruleId).toBe('IH-NO-CONSECUTIVE')
-  })
-})
-
-describe('REST-MIN-GAP (LOU): also only 8h minimum rest, not the base 10h', () => {
+describe('REST-MIN-GAP (LOU): 8h minimum rest', () => {
   it('a 9h gap passes under the LOU\'s 8h protection', () => {
     const shifts = [shift('2025-09-01'), shift('2025-09-02', { callType: 'home', startHour: 17, durationHours: 9 })]
     expect(ruleCheck('REST-MIN-GAP', shifts)).toEqual([])
@@ -83,7 +68,7 @@ describe('REST-MIN-GAP (LOU): also only 8h minimum rest, not the base 10h', () =
   })
 })
 
-describe('IH-MAX-10D (LOU): night-float rotation exempts the 4-per-10-days cap', () => {
+describe('IH-MAX-10D (LOU): night-float rotation exempts the under-10-day cap', () => {
   it('still violates far from any NF rotation', () => {
     const shifts = datesFrom('2025-09-01', 5, 2).map(d => shift(d))
     const violations = ruleCheck('IH-MAX-10D', shifts)

@@ -1,6 +1,6 @@
 // Ported from src/rules/para_2024_2028_peds_uofa_lou.py (main call-scheduler
 // repo): the check()-only subset (no CP-SAT encode(), same reasoning as
-// para_2024_2028.ts — this standalone tool only ever validates).
+// para_2024_2028.ts  -  this standalone tool only ever validates).
 //
 // LOU: General Pediatrics UofA 2026-2027, Alternative Duty Schedule (Art
 // 23.08). Source: docs/reference/LOU - General Pediatrics UofA 2026-2027.docx
@@ -9,10 +9,9 @@
 // Hospital) night float program only.
 //
 // Derived from para_2024_2028's buildRuleset() with these changes:
-//   - IH-NO-CONSECUTIVE (Art 23.05(b)) is overridden: this LOU protects only
-//     8 hours of post-call rest, not the base agreement's 10.
-//   - REST-MIN-GAP (Art 23.01(d)) is overridden the same way: the general
-//     minimum rest between any two duty periods is also 8 hours here, not 10.
+//   - Art 23.05(b)'s consecutive-call rule is varied by the LOU point system
+//     and is therefore not represented as a generic base-rule substitute.
+//   - REST-MIN-GAP is overridden by the LOU's 8-hour minimum.
 //   - IH-MAX-10D (Art 23.05(e)) is overridden: waived during a resident's
 //     own night float rotation and the week immediately before and after it.
 //   - NF-WEEKLY-MAX is added: max 4 overnight NF shifts per rolling 7 days.
@@ -25,35 +24,37 @@
 // An activated backup shift is CallType 'backup': its stipend converts from
 // home call to in-house call on activation, so it's already folded into the
 // base ruleset's shared duty-hour/rest/no-consecutive rules as an
-// in-house-equivalent type there (see para_2024_2028.ts) — but NOT folded
+// in-house-equivalent type there (see para_2024_2028.ts)  -  but NOT folded
 // into IH-MAX-28D/10D or the in-house weekend caps, since the LOU caps
 // backup activity separately via its own points system.
 //
 // NOT modeled (flagged deliberately, not silently dropped):
 //   - The backup-call points system itself (per-block cap of 14/18/20
-//     points) — only the Monday-off consequence of 2+ weekend activations
+//     points)  -  only the Monday-off consequence of 2+ weekend activations
 //     is checked, not a raw activation-count cap.
 //   - Reciprocity (the resident who triggered backup must cover one of the
-//     backup resident's shifts later that block) — a relationship between
+//     backup resident's shifts later that block)  -  a relationship between
 //     two different residents' shifts, which self-check (one resident's own
 //     schedule) has no way to represent.
 //   - The stipend conversion itself is a payroll detail, not a scheduling
 //     constraint.
 import type { AssignedShift, CallType, CheckFn, RuleDef, Violation } from './types'
 import * as windows from './windows'
-import { buildRuleset as buildBase, makeCheckIhNoConsecutive, makeCheckRestMinGap } from './para_2024_2028'
+import { buildRuleset as buildBase, makeCheckRestMinGap } from './para_2024_2028'
 import { addDays, parseDateOnly, formatDateOnly } from './dates'
 
 export const VERSION = 'para_2024_2028_peds_uofa_lou'
 
-const IH_NO_CONSECUTIVE_ARTICLE = 'LOU General Pediatrics UofA 2026-2027 (Art 23.05(b), 8h post-call rest)'
-const REST_MIN_GAP_ARTICLE = 'LOU General Pediatrics UofA 2026-2027 (Art 23.01(d), 8h minimum rest)'
+const REST_MIN_GAP_ARTICLE = 'LOU General Pediatrics UofA 2026-2027 (Art 23.01, 8h minimum rest)'
 const IH_MAX_10D_ARTICLE = 'LOU General Pediatrics UofA 2026-2027 (waives PARA 2024-2028 Art 23.05(e) during NF)'
 const NF_WEEKLY_MAX_ARTICLE = 'LOU General Pediatrics UofA 2026-2027'
 const BACKUP_WEEKEND_POST_CALL_ARTICLE = 'LOU General Pediatrics UofA 2026-2027'
 
 const HC_RULE_IDS = new Set([
-  'HC-MAX-28D', 'HC-MAX-10D', 'HC-MAX-CONSECUTIVE', 'HC-WEEKEND-BLOCKS', 'HC-CONSEC-WEEKENDS',
+  'HC-MAX-28D', 'HC-MAX-CONSECUTIVE', 'HC-WEEKEND-BLOCKS', 'HC-CONSEC-WEEKENDS',
+  'COMBINED-CALL-PRIMARY-REQUIRED', 'COMBINED-CALL-CAPS', 'COMBINED-CALL-WEEKEND-BLOCKS', 'COMBINED-CALL-CONSEC-WEEKENDS',
+  'STANDARD-MAX-WEEKDAY-CLINICAL-HOURS', 'STANDARD-NO-WEEKEND-SHIFTS',
+  'SHIFT-BASED-MAX-WEEKLY-HOURS', 'SHIFT-BASED-NO-ADDITIONAL-CALL', 'SHIFT-BASED-WEEKEND-BLOCKS',
   'FAIR-HC-WEEKDAY', 'FAIR-HC-WEEKEND',
 ])
 
@@ -65,7 +66,7 @@ function toViolationsAll(hits: windows.RuleHit[], ruleId: string, articleRef: st
   return hits.map(hit => ({ ruleId, articleRef, residentId, detail: hit.detail, severity: 'hard' as const, dates: hit.dates }))
 }
 
-// Every calendar date within 7 days either side of an NF shift date — the
+// Every calendar date within 7 days either side of an NF shift date  -  the
 // LOU's "NF rotation and the week immediately before and after" window.
 function nfProtectedDates(nfDates: Set<string>): Set<string> {
   const protectedDates = new Set<string>()
@@ -82,7 +83,7 @@ const checkIhMax10dNfExempt: CheckFn = (shifts, residentId, _params, _ctx) => {
   const nfDates = new Set(shifts.filter(s => s.callType === 'night_float').map(s => s.date))
   const protectedDates = nfProtectedDates(nfDates)
   const relevant = shifts.filter(s => s.callType === 'in_house' && !protectedDates.has(s.date))
-  return toViolations(windows.slidingWindowCountViolation(relevant, 10, 4), 'IH-MAX-10D', IH_MAX_10D_ARTICLE, residentId)
+  return toViolations(windows.slidingWindowCountViolation(relevant, 9, 4), 'IH-MAX-10D', IH_MAX_10D_ARTICLE, residentId)
 }
 
 const checkNfWeeklyMax: CheckFn = (shifts, residentId, _params, _ctx) => {
@@ -95,7 +96,7 @@ const checkBackupWeekendPostCall: CheckFn = (shifts, residentId, _params, _ctx) 
   const allDates = new Set(shifts.map(s => s.date))
   const byWeekend = new Map<string, AssignedShift[]>()
   for (const s of backupShifts) {
-    const key = windows.weekendKey(s.startDt)
+    const key = windows.weekendKey(s.startDt, s.endDt)
     if (key !== null) {
       const list = byWeekend.get(key) ?? []
       list.push(s)
@@ -126,21 +127,15 @@ export function buildRuleset(): RuleDef[] {
     r.id !== 'IH-MAX-10D' && r.id !== 'IH-NO-CONSECUTIVE' && r.id !== 'REST-MIN-GAP' && !HC_RULE_IDS.has(r.id))
 
   base.push({
-    id: 'IH-NO-CONSECUTIVE', articleRef: IH_NO_CONSECUTIVE_ARTICLE, title: 'Guaranteed post-call rest (8h)',
-    callTypes: new Set<CallType>(['in_house', 'home', 'night_float', 'regular', 'backup']), kind: 'hard', params: {},
-    check: makeCheckIhNoConsecutive(8),
-    explanation: 'After an in-house call shift (or an activated backup call shift), a resident is guaranteed at least 8 hours of rest before their next duty — another call shift (in-house, home, night float, or backup) or a regular shift starting too soon after violates it, even with no gap at all. The General Pediatrics UofA 2026-2027 LOU protects 8 hours here, not the base agreement\'s 10.',
-  })
-  base.push({
     id: 'REST-MIN-GAP', articleRef: REST_MIN_GAP_ARTICLE, title: 'Minimum 8h rest between duty periods',
     callTypes: new Set<CallType>(['in_house', 'home', 'night_float', 'regular', 'backup']), kind: 'hard', params: {},
     check: makeCheckRestMinGap(8),
-    explanation: 'Residents need at least 8 hours off between the end of one duty period and the start of the next. The General Pediatrics UofA 2026-2027 LOU protects 8 hours here, not the base agreement\'s 10.',
+    explanation: 'The General Pediatrics UofA LOU sets an 8-hour minimum rest period. Its point-system variation of Art. 23.05(b) needs additional assignment data and is not approximated as a generic rest rule.',
   })
   base.push({
-    id: 'IH-MAX-10D', articleRef: IH_MAX_10D_ARTICLE, title: 'Max in-house call per 10-day period (NF rotation exempt)',
+    id: 'IH-MAX-10D', articleRef: IH_MAX_10D_ARTICLE, title: 'Max in-house call per period under 10 days (NF rotation exempt)',
     callTypes: new Set<CallType>(['in_house', 'night_float']), kind: 'hard', params: {}, check: checkIhMax10dNfExempt,
-    explanation: 'A resident can be assigned at most 4 in-house call shifts within any 10-day period, except during their own night float rotation and the week immediately before or after it — the General Pediatrics UofA 2026-2027 LOU waives the cap for that window.',
+    explanation: 'A resident can be assigned at most 4 in-house call shifts in any period under 10 consecutive days, except during their own night float rotation and the week immediately before or after it  -  the General Pediatrics UofA 2026-2027 LOU waives the cap for that window.',
   })
   base.push({
     id: 'NF-WEEKLY-MAX', articleRef: NF_WEEKLY_MAX_ARTICLE, title: 'Max 4 night float shifts per 7-day period',
