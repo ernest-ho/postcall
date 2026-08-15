@@ -8,7 +8,7 @@
 // rather than something the UI has to guess at by regex-parsing the detail
 // text (which can't tell "the actual violating days" apart from context
 // dates like a window's outer bounds).
-import type { AssignedShift } from './types'
+import type { AssignedShift, CallType } from './types'
 import { addDays, dateRange, diffDays, formatDateOnly, formatDateTime, formatHours, parseDateOnly, pythonWeekday } from './dates'
 
 export interface RuleHit {
@@ -86,22 +86,70 @@ export function maxConsecutiveRunViolations(shifts: AssignedShift[], maxRun: num
   return hits
 }
 
-// For each anchor shift (e.g. an in-house call shift), flags a violation if
-// the gap to the resident's immediately next chronological shift — of any
-// call type, not just another anchor-type shift — is under minHours. The
-// guarantee is a minimum rest period, not a completely duty-free next
-// calendar day: a regular shift or another call shift starting 10+ hours
-// later is fine, but starting sooner (including with zero gap) is not.
+const CALL_LIKE_TYPES: readonly CallType[] = ['in_house', 'home', 'backup']
+
+// Whether a shift of nextType, touching/overlapping the end of a shift of
+// prevType, continues the SAME call block for guaranteedRestAfterViolation's
+// purposes, rather than starting a fresh one.
 //
-// Deliberately does NOT exempt a zero-hour gap the way restViolates does for
-// the general rest-min-gap rule: a normal working day flowing straight into
-// an on-call shift is expected (mergeDutyBlocks), but an in-house call shift
-// flowing straight into the next duty with no break at all is exactly the
-// violation this guarantee exists to catch.
+// Call-like into call-like (e.g. an in-house day shift straight into that
+// same resident's in-house night shift) is one continuous call day, not a
+// post-call boundary — Art 23.01(f) treats combined day+night call as a
+// single duty stretch. Regular into call-like is the classic accepted
+// "normal day extending into on-call" pattern (see mergeDutyBlocks).
+// Anything else touching a call-like shift — most importantly a call-like
+// shift flowing OUT into a regular (or night-float) shift — is exactly the
+// post-call boundary this rule exists to catch, so it must NOT merge.
+function extendsCallBlock(prevType: CallType, nextType: CallType): boolean {
+  if (CALL_LIKE_TYPES.includes(prevType) && CALL_LIKE_TYPES.includes(nextType)) return true
+  if (prevType === 'regular' && CALL_LIKE_TYPES.includes(nextType)) return true
+  return prevType === 'regular' && nextType === 'regular'
+}
+
+function mergeCallBlocks(shifts: AssignedShift[]): AssignedShift[][] {
+  const ordered = [...shifts].sort((a, b) => a.startDt.getTime() - b.startDt.getTime())
+  const blocks: AssignedShift[][] = []
+  for (const s of ordered) {
+    const last = blocks[blocks.length - 1]
+    const lastShift = last?.[last.length - 1]
+    if (
+      last && lastShift
+      && s.startDt.getTime() <= Math.max(...last.map(b => b.endDt.getTime()))
+      && extendsCallBlock(lastShift.callType, s.callType)
+    ) {
+      last.push(s)
+    } else {
+      blocks.push([s])
+    }
+  }
+  return blocks
+}
+
+// For each CONTINUOUS CALL BLOCK (see mergeCallBlocks) that contains at
+// least one anchor shift (e.g. an in-house call shift), flags a violation if
+// the gap to the next duty block is under minHours. The guarantee is a
+// minimum rest period, not a completely duty-free next calendar day: a
+// regular shift or another call shift starting 10+ hours after the block
+// ends is fine, but starting sooner (including with zero gap) is not.
 //
-// One hit per anchor shift with insufficient following rest (mirrors
-// restGapViolations' per-instance style, since this is a gap check, not a
-// day-run check), not grouped into day-chains.
+// Anchoring on merged call BLOCKS rather than individual raw shifts matters:
+// a weekend's in-house day shift (e.g. 08:00-17:00) flowing straight into
+// that same resident's in-house night shift (17:00-08:00) is one continuous
+// ~24h call day, not a "post-call" boundary — Art 23.01(f) explicitly treats
+// combined day+night call as a single duty stretch. Only once the WHOLE
+// merged call block ends does the post-call rest guarantee apply; anchoring
+// on the day shift's own end would wrongly flag the very next duty (the
+// night shift) as a zero-gap violation.
+//
+// Unlike the generic mergeDutyBlocks, mergeCallBlocks never lets a call-like
+// shift merge INTO a following regular/night-float shift — that boundary
+// (the call ending, ordinary duty resuming with no break at all) is exactly
+// the violation this guarantee exists to catch, so it deliberately does NOT
+// exempt a zero-hour gap there the way restViolates does for the general
+// rest-min-gap rule.
+//
+// One hit per anchor block with insufficient following rest (mirrors
+// restGapViolations' per-block style), not grouped into day-chains.
 //
 // Exception: a backup-to-backup transition is never a violation here. Two
 // back-to-back weekend backup call activations (LOU General Pediatrics
@@ -111,21 +159,25 @@ export function maxConsecutiveRunViolations(shifts: AssignedShift[], maxRun: num
 export function guaranteedRestAfterViolation(
   anchorShifts: AssignedShift[], allShifts: AssignedShift[], minHours: number,
 ): RuleHit[] {
-  const ordered = [...allShifts].sort((a, b) => a.startDt.getTime() - b.startDt.getTime())
+  const anchorIds = new Set(anchorShifts.map(s => s.shiftInstanceId))
+  const blocks = mergeCallBlocks(allShifts)
   const hits: RuleHit[] = []
-  for (const anchor of anchorShifts) {
-    const later = ordered.filter(s => s.startDt.getTime() > anchor.startDt.getTime())
-    if (later.length === 0) continue
-    const next = later.reduce((a, b) => (a.startDt.getTime() <= b.startDt.getTime() ? a : b))
-    if (anchor.callType === 'backup' && next.callType === 'backup') continue
-    const gapHours = (next.startDt.getTime() - anchor.endDt.getTime()) / 3_600_000
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    if (!block.some(s => anchorIds.has(s.shiftInstanceId))) continue
+    const nextBlock = blocks[i + 1]
+    if (!nextBlock) continue
+    if (block[block.length - 1].callType === 'backup' && nextBlock[0].callType === 'backup') continue
+    const blockEnd = new Date(Math.max(...block.map(s => s.endDt.getTime())))
+    const nextShift = nextBlock.reduce((a, b) => (a.startDt.getTime() <= b.startDt.getTime() ? a : b))
+    const gapHours = (nextShift.startDt.getTime() - blockEnd.getTime()) / 3_600_000
     if (gapHours < minHours) {
       hits.push({
         detail: (
-          `Only ${formatHours(gapHours)} rest after in-house call ending ${formatDateTime(anchor.endDt)}, ` +
-          `before duty starting ${formatDateTime(next.startDt)} on ${next.date}, minimum is ${formatHours(minHours)}`
+          `Only ${formatHours(gapHours)} rest after in-house call ending ${formatDateTime(blockEnd)}, ` +
+          `before duty starting ${formatDateTime(nextShift.startDt)} on ${nextShift.date}, minimum is ${formatHours(minHours)}`
         ),
-        dates: [...new Set([anchor.date, next.date])],
+        dates: [...new Set([block[block.length - 1].date, nextShift.date])],
       })
     }
   }

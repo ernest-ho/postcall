@@ -105,6 +105,23 @@ describe('IH-NO-CONSECUTIVE (Art 23.05(b))', () => {
     const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
     expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
   })
+  it('day call into night call the same day is not a violation', () => {
+    // A weekend in-house day shift (08:00-17:00) flowing straight into that
+    // same resident's in-house night shift (17:00-08:00) is one continuous
+    // ~24h call day, not a "post-call" boundary (Art 23.01(f)) — the
+    // guarantee only applies once the WHOLE combined call day actually ends.
+    const day = shift('2025-09-06', { startHour: 8, durationHours: 9, id: 'day' })
+    const night = shift('2025-09-06', { startHour: 17, durationHours: 15, id: 'night' })
+    expect(ruleCheck('IH-NO-CONSECUTIVE', [day, night])).toEqual([])
+  })
+  it('still fires after a combined day+night call day ends', () => {
+    const day = shift('2025-09-06', { startHour: 8, durationHours: 9, id: 'day' })
+    const night = shift('2025-09-06', { startHour: 17, durationHours: 15, id: 'night' })
+    const regular = shift('2025-09-07', { callType: 'regular', startHour: 8, durationHours: 9 })
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', [day, night, regular])
+    expect(violations.length).toBe(1)
+    expect(violations[0].ruleId).toBe('IH-NO-CONSECUTIVE')
+  })
 })
 
 describe('HC-MAX-CONSECUTIVE (Art 23.06(b))', () => {
