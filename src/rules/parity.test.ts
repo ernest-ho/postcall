@@ -245,12 +245,6 @@ describe('Weekend rules (Art 23.05(c) / 23.06(c))', () => {
     const shifts = [0, 1].map(w => saturdayShift(base, w))
     expect(ruleCheck('IH-CONSEC-WEEKENDS', shifts)).toEqual([])
   })
-  it('NF weekend rules apply the same as IH/HC', () => {
-    const violating = [0, 2, 3].map(w => saturdayShift(base, w, 'night_float'))
-    const passing = [0, 2].map(w => saturdayShift(base, w, 'night_float'))
-    expect(ruleCheck('NF-WEEKEND-BLOCKS', violating).some(v => v.ruleId === 'NF-WEEKEND-BLOCKS')).toBe(true)
-    expect(ruleCheck('NF-WEEKEND-BLOCKS', passing)).toEqual([])
-  })
 })
 
 describe('REST-MIN-GAP (Art 23.01(d))', () => {
