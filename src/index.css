@@ -484,6 +484,9 @@
     font-size: 0.68rem;
     line-height: 1.1;
   }
+  .incoming-entry-time-mobile {
+    display: none;
+  }
   .day-cell.weekend {
     /* Light mode keeps the warm dusk tint from the duty-cycle gradient; dark
        mode switches to a light purple instead, since the dark dusk brown
@@ -562,15 +565,24 @@
     .incoming-entry {
       justify-content: center;
       gap: 1px;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin-right: 0;
       padding: 1px;
       font-size: 0.55rem;
       line-height: 1.1;
       white-space: nowrap;
       overflow: hidden;
     }
-    .incoming-entry svg {
-      width: 9px;
-      height: 9px;
+    .incoming-entry-icon,
+    .incoming-entry-time-full {
+      display: none;
+    }
+    .incoming-entry-time-mobile {
+      display: inline;
+      min-width: 0;
     }
     /* Keep the shift type and full time range on one row. The mobile time
        form ("5p–8a") uses enough of the compact day cell to remain readable

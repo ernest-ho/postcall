@@ -1020,8 +1020,11 @@ export default function SelfCheckPage() {
                   : `Expand ${TYPE_LABEL[e.type]} details`}
                 className={`incoming-entry flex items-center rounded border border-dashed border-stone-400 opacity-85 shadow-none hover:translate-y-0 ${TYPE_CLASSES[e.type]}`}
               >
-                <Icon size={11} className="shrink-0" />
-                <span>until <TimeLabel value={e.end} /></span>
+                <Icon size={11} className="incoming-entry-icon shrink-0" />
+                <span className="incoming-entry-time-full">until <TimeLabel value={e.end} /></span>
+                <span className="incoming-entry-time-mobile" aria-hidden="true">
+                  → <CompactTimeLabel value={e.end} />
+                </span>
               </button>
             )
           })}
