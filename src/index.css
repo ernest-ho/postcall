@@ -352,6 +352,24 @@
     width: clamp(0.5rem, 3vw, 1.5rem);
   }
 
+  .calendar-card-header {
+    min-width: 0;
+  }
+  .calendar-header-controls {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .calendar-header-icon {
+    display: inline-flex;
+    width: 2.25rem;
+    height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
   /* The width a shift entry has to work with  -  an element can't run an
      @container query against its own size to restyle itself, so this lives
      on the day-cell's content wrapper (an ancestor of .shift-entry) rather
@@ -511,6 +529,32 @@
     .calendar-card-header,
     .calendar-legend {
       padding-inline: 0;
+    }
+    .calendar-card-header {
+      gap: 0.35rem;
+    }
+    .calendar-card-header h2 {
+      min-width: 0;
+      margin-right: auto;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .calendar-header-controls {
+      gap: 0.15rem;
+    }
+    .calendar-header-icon {
+      width: 1.75rem;
+      height: 1.75rem;
+    }
+    .calendar-header-icon svg {
+      width: 14px;
+      height: 14px;
+    }
+    .calendar-today-button {
+      height: 1.75rem;
+      padding: 0 0.4rem;
+      font-size: 0.7rem;
+      line-height: 1;
     }
     .schedule-grid {
       gap: 2px;

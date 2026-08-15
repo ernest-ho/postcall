@@ -1262,23 +1262,23 @@ export default function SelfCheckPage() {
           <h2 style={{ marginBottom: 0 }}>
             {new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' })} {year}
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="calendar-header-controls">
             {/* Mirrors the floating prev/next buttons below, but inline  -
                 those are hidden on mobile since there's no room for them to
                 straddle the card border without sitting outside the
                 viewport, so this is the only way to page months there. */}
-            <button className="secondary sm:hidden p-2" onClick={() => goToMonth(-1)} title="Previous month">
+            <button className="secondary calendar-header-icon sm:hidden" onClick={() => goToMonth(-1)} title="Previous month">
               <ChevronLeft size={16} />
             </button>
-            <button className="secondary" onClick={jumpToToday}>Today</button>
-            <button className="secondary sm:hidden p-2" onClick={() => goToMonth(1)} title="Next month">
+            <button className="secondary calendar-today-button" onClick={jumpToToday}>Today</button>
+            <button className="secondary calendar-header-icon sm:hidden" onClick={() => goToMonth(1)} title="Next month">
               <ChevronRight size={16} />
             </button>
-            <button className="secondary p-2" onClick={() => setConfirmingReset(true)} title="Reset">
+            <button className="secondary calendar-header-icon" onClick={() => setConfirmingReset(true)} title="Reset">
               <RotateCcw size={16} />
             </button>
             <button
-              className={`${deleteMode ? 'danger' : 'secondary'} sm:hidden p-2`}
+              className={`${deleteMode ? 'danger' : 'secondary'} calendar-header-icon sm:hidden`}
               onClick={() => {
                 setDeleteMode(active => !active)
                 setExpandedEntryKey(null)
