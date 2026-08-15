@@ -44,20 +44,20 @@ const checkIhMax10d: CheckFn = (shifts, residentId, _params, _ctx) => {
   return toViolations(windows.slidingWindowCountViolation(relevant, 10, 4), 'IH-MAX-10D', 'PARA 2024-2028, Art 23.05(a)', residentId)
 }
 
-// `shifts` here includes every call type this rule scopes to (see its
-// RuleDef below): in-house call anchors the guarantee, but home call, night
-// float, or a regular shift starting too soon after violates it just as
-// much as another in-house call would, so the gap check runs against all
-// of them. An activated backup call shift (LOU General Pediatrics UofA
-// 2026-2027) anchors it too — its stipend converts from home call to
-// in-house call on activation, so it's clinically in-house duty here.
+// Art 23.05(b)'s actual text bans "in-house call duty, or a COMBINATION of
+// in-house and home call duty" on two consecutive days — home call anchors
+// this guarantee too, not just in-house, so a home call shift followed too
+// soon by any other duty is just as much a violation as an in-house call
+// shift would be. An activated backup call shift (LOU General Pediatrics
+// UofA 2026-2027) anchors it as well — its stipend converts from home call
+// to in-house call on activation, so it's clinically in-house duty here.
 //
 // minHours is parameterized (not always 10) because the LOU General
 // Pediatrics UofA 2026-2027 protects only 8 hours post-call, not the base
 // agreement's 10 — see para_2024_2028_peds_uofa_lou.ts.
 export function makeCheckIhNoConsecutive(minHours: number): CheckFn {
   return (shifts, residentId, _params, _ctx) => {
-    const ihShifts = shifts.filter(s => s.callType === 'in_house' || s.callType === 'backup')
+    const ihShifts = shifts.filter(s => s.callType === 'in_house' || s.callType === 'home' || s.callType === 'backup')
     return toViolationsAll(windows.guaranteedRestAfterViolation(ihShifts, shifts, minHours), 'IH-NO-CONSECUTIVE', 'PARA 2024-2028, Art 23.05(b)', residentId)
   }
 }

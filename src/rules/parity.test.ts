@@ -83,6 +83,20 @@ describe('IH-NO-CONSECUTIVE (Art 23.05(b))', () => {
     const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
     expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
   })
+  it('anchors on a home call shift too', () => {
+    // Art 23.05(b) bans "in-house call duty, or a COMBINATION of in-house
+    // and home call duty" on two consecutive days — a home call shift
+    // followed too soon by an in-house call shift is just as much a
+    // violation as the reverse order.
+    const shifts = [shift('2025-09-01', { callType: 'home' }), shift('2025-09-02')]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+  })
+  it('home call anchors even when followed by another home call shift', () => {
+    const shifts = [shift('2025-09-01', { callType: 'home' }), shift('2025-09-02', { callType: 'home' })]
+    const violations = ruleCheck('IH-NO-CONSECUTIVE', shifts)
+    expect(violations.some(v => v.ruleId === 'IH-NO-CONSECUTIVE')).toBe(true)
+  })
   it('anchors on an activated backup call shift too', () => {
     // An activated backup call shift (LOU General Pediatrics UofA
     // 2026-2027) converts to an in-house stipend, so it anchors the same
